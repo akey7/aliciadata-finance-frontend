@@ -826,6 +826,37 @@ def backtest_cards(metrics):
     return cards
 
 
+def backtest_metrics_note_markdown(metadata):
+    """
+    Generate the note below the back test cards on how to read them. The
+    number of returns is read from the file, and volatility is mentioned
+    only when a card shows it (contract v42+).
+
+    Parameters
+    ----------
+    metadata : BacktestMetadata
+        Loaded back test metadata.
+
+    Returns
+    -------
+    str
+        One line of bold italic and italic markdown.
+    """
+    directions = (
+        "CAGR and cumulative return: higher is better; maximum drawdown: closer to "
+        "0% is better"
+    )
+    if (
+        metadata.max_sharpe.annualized_volatility is not None
+        or metadata.equal_weight.annualized_volatility is not None
+    ):
+        directions += "; annualized realized volatility: lower is better"
+    return (
+        f"***Calculated from {metadata.trading_days} out-of-sample daily portfolio "
+        f"returns.*** *{directions}.*"
+    )
+
+
 def backtest_card_rows(metadata, constraints_md=""):
     """
     Return what each row of back test metric cards shows, in display order.
@@ -2182,6 +2213,7 @@ class FSFinance:
                                     elem_classes=["backtest-card", card_class],
                                 ):
                                     gr.Markdown(f"{label}\n\n{value}")
+                    gr.Markdown(backtest_metrics_note_markdown(data.backtest_metadata))
                 else:
                     gr.Markdown(
                         f"**Back test results unavailable.** {data.backtest_metadata_error}"

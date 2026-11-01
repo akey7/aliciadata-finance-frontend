@@ -53,6 +53,7 @@ from app import (
     backtest_cards,
     backtest_growth_df,
     backtest_heading_markdown,
+    backtest_metrics_note_markdown,
     backtest_plot,
     signed_percent,
 )
@@ -745,6 +746,27 @@ def test_backtest_volatility_card_is_last_and_unsigned():
         "12.7%",
     )
     assert len(backtest_cards(metrics)) == 4
+
+
+def test_backtest_metrics_note_reads_the_number_of_returns_from_the_file():
+    metrics = BacktestMetrics(
+        cagr=1.0, cumulative_return=1.0, max_drawdown=-1.0, annualized_volatility=9.0
+    )
+    note = backtest_metrics_note_markdown(
+        backtest_metadata(trading_days=60, max_sharpe=metrics)
+    )
+    assert note == (
+        "***Calculated from 60 out-of-sample daily portfolio returns.*** *CAGR and "
+        "cumulative return: higher is better; maximum drawdown: closer to 0% is "
+        "better; annualized realized volatility: lower is better.*"
+    )
+
+
+def test_backtest_metrics_note_mentions_volatility_only_when_shown():
+    note = backtest_metrics_note_markdown(backtest_metadata(trading_days=20))
+    assert "Calculated from 20 out-of-sample" in note
+    assert "volatility" not in note
+    assert note.endswith("closer to 0% is better.*")
 
 
 def test_backtest_card_rows_show_max_sharpe_above_baseline():
