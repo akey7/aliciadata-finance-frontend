@@ -11,6 +11,10 @@ from matplotlib.figure import Figure
 from s3_downloader import S3Downloader
 from data_loading import (
     ARIMA_SUFFIX,
+    BACKTEST_DAILY_KEY,
+    BACKTEST_EQUAL_WEIGHT_WEALTH,
+    BACKTEST_MAX_SHARPE_WEALTH,
+    BACKTEST_METADATA_KEY,
     CONTRACT_VERSION,
     FORECASTS_KEY,
     FORECASTS_METADATA_KEY,
@@ -18,6 +22,7 @@ from data_loading import (
     OPTIMIZATION_METADATA_KEY,
     ORDER_SUFFIXES,
     PLOT_DATA_KEY,
+    BacktestMetadata,
     DataLoadError,
     ForecastsMetadata,
     OptimizationMetadata,
@@ -25,8 +30,11 @@ from data_loading import (
     arima_orders,
     available_dates,
     clean_weights,
+    final_optimization_agrees,
     folder_date_warnings,
     forecast_tickers,
+    load_backtest_daily,
+    load_backtest_metadata,
     load_forecasts,
     load_forecasts_metadata,
     load_optimization_metadata,
@@ -51,6 +59,10 @@ DISCLAIMER_MD = (
 FORECASTS_METADATA_UNPUBLISHED = (
     "Accuracy metrics are not available for this date. The backend publishes "
     "them from interface contract v21 on."
+)
+BACKTEST_UNPUBLISHED = (
+    "Back test results are not available for this date. The backend publishes "
+    "them from interface contract v36 on."
 )
 
 # Time series plot: one fixed color per series (Okabe-Ito, colorblind-safe).
@@ -101,6 +113,20 @@ CAL_TOLERANCE = 1e-9
 # Margin around the plotted data, as a fraction of its range on each axis.
 PORTFOLIO_PLOT_MARGIN = 0.05
 
+# Back test plot: one fixed label and color per portfolio, with the baseline
+# in the same gray as the naive forecast baseline.
+BACKTEST_PLOT_HEIGHT = 420
+BACKTEST_DATE_COLUMN = "Date"
+BACKTEST_VALUE_COLUMN = "Value of $1 ($)"
+BACKTEST_SERIES = {
+    BACKTEST_MAX_SHARPE_WEALTH: "Max Sharpe portfolio",
+    BACKTEST_EQUAL_WEIGHT_WEALTH: "Equal-weight baseline",
+}
+BACKTEST_COLORS = {
+    BACKTEST_SERIES[BACKTEST_MAX_SHARPE_WEALTH]: ACTUAL_COLOR,
+    BACKTEST_SERIES[BACKTEST_EQUAL_WEIGHT_WEALTH]: NAIVE_COLOR,
+}
+
 
 @dataclass(frozen=True)
 class DateData:
@@ -111,6 +137,8 @@ class DateData:
 
     all_forecasts_metadata.yml is optional (contract v21+):
     forecasts_metadata_published says whether the folder listing showed it.
+    The two back test files are optional (contract v36+) in the same way:
+    backtest_published says whether the listing showed either of them.
     """
 
     date: str
@@ -123,18 +151,27 @@ class DateData:
     forecasts_metadata: ForecastsMetadata | None
     forecasts_metadata_error: str | None
     forecasts_metadata_published: bool
+    backtest_daily: pd.DataFrame | None
+    backtest_daily_error: str | None
+    backtest_metadata: BacktestMetadata | None
+    backtest_metadata_error: str | None
+    backtest_published: bool
 
     def complete(self):
         """
         Return True if every file the date folder has loaded without
-        errors. A date without the optional forecasts metadata can still be
-        complete.
+        errors. A date without the optional forecasts metadata or back test
+        files can still be complete.
         """
         return (
             self.metadata is not None
             and self.plot_data is not None
             and self.forecasts is not None
             and (self.forecasts_metadata is not None or not self.forecasts_metadata_published)
+            and (
+                not self.backtest_published
+                or (self.backtest_daily is not None and self.backtest_metadata is not None)
+            )
         )
 
 
@@ -553,9 +590,9 @@ def near_frontier_sentence(stats):
 
 def random_sampling_markdown(metadata):
     """
-    Generate the "Random portfolio sampling" part of the portfolio
-    optimization and random sampling assumptions accordion: the contract's
-    caption on the random portfolios being illustrative, then, for
+    Generate the "Random portfolio sampling" part of the assumptions
+    accordion: the contract's caption on the random portfolios being
+    illustrative, then, for
     contract v32+ dates, how many of them lie near the frontier and their
     details (random_portfolios_details_markdown).
 
@@ -591,9 +628,10 @@ def standalone_random_sampling_markdown(plot_shown, metadata):
 
     The contract (v34) requires the caption whenever the plot is shown,
     either near it or in a collapsible section attached to it. The
-    accordion is built only when optimization_metadata.yml loads, so if the
-    plot loads without it, the caption goes under the plot instead
-    (random_sampling_markdown without metadata gives just the caption).
+    accordion's optimization part is built only when
+    optimization_metadata.yml loads, so if the plot loads without it, the
+    caption goes under the plot instead (random_sampling_markdown without
+    metadata gives just the caption).
 
     Parameters
     ----------
@@ -695,6 +733,215 @@ def noon_timestamps(dates):
     return pd.to_datetime(
         dates.dt.strftime("%Y-%m-%d") + " 12:00", format="%Y-%m-%d %H:%M"
     )
+
+
+def signed_percent(value):
+    """
+    Format a percentage with an explicit sign, for the back test cards.
+
+    Parameters
+    ----------
+    value : float
+        Percentage, e.g. 10.84 or -19.6.
+
+    Returns
+    -------
+    str
+        One decimal with a plus or minus sign (a true minus sign, not a
+        hyphen), e.g. "+10.8%" or "−19.6%". A value that rounds to zero has
+        no sign.
+    """
+    rounded = round(value, 1)
+    sign = "+" if rounded > 0 else "−" if rounded < 0 else ""
+    return f"{sign}{abs(rounded):.1f}%"
+
+
+def backtest_period_markdown(metadata):
+    """
+    Generate the heading of the back test and the period it covers. The
+    period starts at the close where wealth is $1.00, the left edge of the
+    plot, rather than at the first scored day after it.
+
+    Parameters
+    ----------
+    metadata : BacktestMetadata
+        Loaded back test metadata.
+
+    Returns
+    -------
+    str
+        A `###` heading and a line such as "2026-07-31 – 2026-10-30".
+    """
+    return os.linesep.join(
+        [
+            "### Max Sharpe Portfolio",
+            f"{metadata.initial_wealth_date} – {metadata.end_date}",
+        ]
+    )
+
+
+def backtest_cards(metrics):
+    """
+    Return the label and value of each back test metric card. The metrics
+    come from the backend; nothing is computed here.
+
+    Parameters
+    ----------
+    metrics : BacktestMetrics
+        Results of one back test portfolio.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        (label, signed percentage), in display order.
+    """
+    return [
+        ("CAGR", signed_percent(metrics.cagr)),
+        ("Cumulative", signed_percent(metrics.cumulative_return)),
+        ("Max Drawdown", signed_percent(metrics.max_drawdown)),
+    ]
+
+
+def backtest_growth_df(daily):
+    """
+    Pivot the back test's wealth columns into a long format suitable for
+    visualization with gr.LinePlot().
+
+    Like the time series plot, the date is a real timestamp at noon so the
+    date axis can thin its labels (see noon_timestamps), and "Trading day"
+    is the same date as text with its weekday, for the tooltip.
+
+    Parameters
+    ----------
+    daily : pd.DataFrame
+        Wealth from data_loading.load_backtest_daily().
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns "Date", "Series", "Value of $1 ($)", and
+        "Trading day".
+    """
+    growth = (
+        daily[list(BACKTEST_SERIES)]
+        .rename(columns=BACKTEST_SERIES)
+        .rename_axis("session")
+        .reset_index()
+        .melt(id_vars="session", var_name="Series", value_name=BACKTEST_VALUE_COLUMN)
+    )
+    # Enough decimals that the line stays smooth; 2 would make it stepped.
+    growth[BACKTEST_VALUE_COLUMN] = growth[BACKTEST_VALUE_COLUMN].round(4)
+    growth["Trading day"] = growth["session"].dt.strftime("%Y-%m-%d").map(date_label)
+    growth[BACKTEST_DATE_COLUMN] = noon_timestamps(growth["session"])
+    return growth.drop(columns="session")
+
+
+def backtest_plot(daily):
+    """
+    Create the "Growth of $1" gr.LinePlot() of the max Sharpe portfolio and
+    the equal-weight baseline. The app calls this inside a gr.render()
+    function so the plot is rebuilt from scratch whenever the selected date
+    changes.
+
+    Parameters
+    ----------
+    daily : pd.DataFrame
+        Wealth from data_loading.load_backtest_daily().
+
+    Returns
+    -------
+    gr.LinePlot
+        An interactive LinePlot in US dollars.
+    """
+    growth = backtest_growth_df(daily)
+    return gr.LinePlot(
+        value=growth,
+        title="Growth of $1",
+        x=BACKTEST_DATE_COLUMN,
+        x_title="Date (market close)",
+        # A time axis, so the plot labels only as many dates as fit,
+        # however long the back test is.
+        sort="x",
+        y=BACKTEST_VALUE_COLUMN,
+        color="Series",
+        color_map=BACKTEST_COLORS,
+        tooltip=["Trading day", "Series", BACKTEST_VALUE_COLUMN],
+        y_lim=[
+            float(0.95 * growth[BACKTEST_VALUE_COLUMN].min()),
+            float(1.05 * growth[BACKTEST_VALUE_COLUMN].max()),
+        ],
+        height=BACKTEST_PLOT_HEIGHT,
+    )
+
+
+def backtest_assumptions_markdown(metadata):
+    """
+    Generate the "Back testing" part of the assumptions accordion: the
+    contract's suggested wording, with the window lengths read from the
+    file, then its notes on reading the results. A note on the fallback is
+    added only when a rebalance used it. The investment-advice disclaimer
+    is not repeated here; it is shown once, at the bottom of the page.
+
+    Parameters
+    ----------
+    metadata : BacktestMetadata
+        Loaded back test metadata.
+
+    Returns
+    -------
+    str
+        A `###` heading, one paragraph, and a bullet list.
+    """
+    m = metadata
+    n = m.trading_days
+    r = m.rebalance_interval_sessions
+    t = m.training_window_returns
+    lines = [
+        "### Back testing",
+        f"Growth of $1 over the last {n} trading days. Every {r} trading days, the "
+        f"max Sharpe ratio portfolio is re-optimized on the previous {t} daily "
+        "returns, using only data available at that date, and the baseline is reset "
+        "to equal weights; between those dates no trades are made and weights drift. "
+        f"Execution is idealized, with no transaction costs. {n} trading days is a "
+        "short period for a fixed set of tickers chosen with hindsight, so this does "
+        "not show that either portfolio is better.",
+        "",
+        "- **Metrics:** cumulative return is the compounded total over the period, in "
+        "percent. CAGR is the compound annual growth rate, in percent. Max drawdown is "
+        "the largest peak-to-trough decline of the portfolio's value, in percent.",
+        "- **CAGR and annualized return are different quantities:** CAGR is compounded "
+        "and realized over the back test, while the annualized returns under Latest "
+        "Optimization are arithmetic, in-sample estimates.",
+        "- **CAGR extrapolates:** it scales a short window to a full year, so a few "
+        "good days give a large number. Prefer the cumulative return as the headline "
+        "figure.",
+        f"- **Small sample:** one window of {n} trading days cannot show that either "
+        "portfolio is better. The difference is one noisy outcome, and the back test "
+        f"has only {m.rebalance_count} independent decisions.",
+        "- **Fixed universe:** the tickers are the ones in the portfolio today, chosen "
+        "with hindsight, for both portfolios.",
+        "- **Idealized execution:** each rebalance happens exactly at the close whose "
+        "price the optimization just used, with no transaction costs or slippage. The "
+        "max Sharpe ratio portfolio generally trades more than the baseline, so costs "
+        "would hurt it more. This is not an execution-realistic trading simulation.",
+        "- **Prices:** returns come from Massive.com's adjusted closes, and dividends "
+        "are not assumed to be included. If they are not, these are price returns, "
+        "which understate the tickers that pay dividends.",
+        f"- **Last rebalance:** it was {r} trading days before the end of the back "
+        "test, so it used older data than the portfolio under Latest Optimization. "
+        "That portfolio is one more optimization at the end, and it adds no return to "
+        "the back test.",
+        "- **Comparing dates:** consecutive dates overlap almost entirely, and the "
+        "settings can differ between them. Compare the number of trading days and the "
+        "rebalance schedule before comparing metrics across dates.",
+    ]
+    if m.fallback_count > 0:
+        fallback = f" ({m.fallback_assumption})" if m.fallback_assumption else ""
+        lines.append(
+            f"- **Fallback:** {m.fallback_count} of the {m.rebalance_count} rebalances "
+            f"did not use a new optimization{fallback}."
+        )
+    return os.linesep.join(lines)
 
 
 def capital_allocation_line(cal_group, max_sharpe_ratio):
@@ -964,14 +1211,16 @@ class FSFinance:
         """
         List the dates that are complete in both top-level folders, with
         the ETags of their marker files (`optimization_metadata.yml` and
-        `all_forecasts.csv`) and of the optional `all_forecasts_metadata.yml`.
+        `all_forecasts.csv`) and of the optional `all_forecasts_metadata.yml`,
+        `portfolio_backtest_daily.csv`, and `portfolio_backtest_metadata.yml`.
         Keys whose segment after the folder is not a valid date are ignored.
 
         Returns
         -------
-        tuple[dict[str, tuple[str, str, str | None]], str | None]
+        tuple[dict[str, tuple[str, str, str | None, str | None, str | None]], str | None]
             Available date -> (metadata ETag, forecasts ETag, forecasts
-            metadata ETag or None if the date has no such file), newest
+            metadata ETag, back test daily ETag, back test metadata ETag,
+            with None for an optional file the date does not have), newest
             first, and an error message (None if dates were found).
         """
         if self.downloader is None:
@@ -998,6 +1247,8 @@ class FSFinance:
                 portfolio_keys[f"{date}/{OPTIMIZATION_METADATA_KEY}"],
                 forecast_keys[f"{date}/{FORECASTS_KEY}"],
                 forecast_keys.get(f"{date}/{FORECASTS_METADATA_KEY}"),
+                portfolio_keys.get(f"{date}/{BACKTEST_DAILY_KEY}"),
+                portfolio_keys.get(f"{date}/{BACKTEST_METADATA_KEY}"),
             )
             for date in available_dates(portfolio_keys, forecast_keys)
         }
@@ -1042,11 +1293,11 @@ class FSFinance:
             print(f"Could not load {object_name}: {error}")
             return None, str(error)
 
-    def load_date(self, date, forecasts_metadata_published):
+    def load_date(self, date, forecasts_metadata_published, backtest_published):
         """
         Download and load the files from one date folder. The optional
-        all_forecasts_metadata.yml is downloaded only if the folder listing
-        showed it.
+        all_forecasts_metadata.yml and back test files are downloaded only
+        if the folder listing showed them.
 
         Parameters
         ----------
@@ -1055,6 +1306,9 @@ class FSFinance:
 
         forecasts_metadata_published : bool
             True if the date folder has all_forecasts_metadata.yml.
+
+        backtest_published : bool
+            True if the date folder has either back test file.
 
         Returns
         -------
@@ -1084,6 +1338,19 @@ class FSFinance:
         else:
             forecasts_metadata = None
             forecasts_metadata_error = FORECASTS_METADATA_UNPUBLISHED
+        if backtest_published:
+            backtest_daily, backtest_daily_error = self.fetch_and_load(
+                PORTFOLIO_FOLDER_ENV, date, BACKTEST_DAILY_KEY, load_backtest_daily
+            )
+            backtest_metadata, backtest_metadata_error = self.fetch_and_load(
+                PORTFOLIO_FOLDER_ENV,
+                date,
+                BACKTEST_METADATA_KEY,
+                load_backtest_metadata,
+            )
+        else:
+            backtest_daily = backtest_metadata = None
+            backtest_daily_error = backtest_metadata_error = BACKTEST_UNPUBLISHED
         return DateData(
             date=date,
             metadata=metadata,
@@ -1095,6 +1362,11 @@ class FSFinance:
             forecasts_metadata=forecasts_metadata,
             forecasts_metadata_error=forecasts_metadata_error,
             forecasts_metadata_published=forecasts_metadata_published,
+            backtest_daily=backtest_daily,
+            backtest_daily_error=backtest_daily_error,
+            backtest_metadata=backtest_metadata,
+            backtest_metadata_error=backtest_metadata_error,
+            backtest_published=backtest_published,
         )
 
     def date_data(self, date, marker_etags):
@@ -1102,20 +1374,21 @@ class FSFinance:
         Return the data for a date, from the cache when possible.
 
         A cached date is reused only while the ETags of its marker files
-        (and of the optional forecasts metadata) are unchanged, so a
-        same-day backend re-run is downloaded again. Only complete dates are
-        cached, so a failed download is retried on the next request. The
-        lock makes concurrent requests for a date download it once and
-        never read a half-written local file.
+        (and of the optional forecasts metadata and back test files) are
+        unchanged, so a same-day backend re-run is downloaded again. Only
+        complete dates are cached, so a failed download is retried on the
+        next request. The lock makes concurrent requests for a date download
+        it once and never read a half-written local file.
 
         Parameters
         ----------
         date : str
             Date folder (`YYYY-MM-DD`).
 
-        marker_etags : tuple[str, str, str | None]
-            ETags of the date's optimization metadata, forecasts, and
-            forecasts metadata (None if the date has none).
+        marker_etags : tuple[str, str, str | None, str | None, str | None]
+            ETags of the date's optimization metadata, forecasts, forecasts
+            metadata, back test daily file, and back test metadata (None for
+            an optional file the date does not have).
 
         Returns
         -------
@@ -1127,7 +1400,11 @@ class FSFinance:
             if cached is not None and cached[0] == tuple(marker_etags):
                 return cached[1]
             data = self.load_date(
-                date, forecasts_metadata_published=marker_etags[2] is not None
+                date,
+                forecasts_metadata_published=marker_etags[2] is not None,
+                backtest_published=(
+                    marker_etags[3] is not None or marker_etags[4] is not None
+                ),
             )
             if data.complete():
                 self._cache[date] = (tuple(marker_etags), data)
@@ -1144,7 +1421,7 @@ class FSFinance:
         date : str | None
             Value of the date dropdown.
 
-        markers : dict[str, tuple[str, str, str | None]]
+        markers : dict[str, tuple[str, str, str | None, str | None, str | None]]
             Available dates and marker ETags from list_dates().
 
         Returns
@@ -1362,11 +1639,11 @@ class FSFinance:
         """
         m = metadata
         lines = [
-            "## Maximum Sharpe ratio portfolio",
+            "### Maximum Sharpe ratio portfolio",
             f"- Annualized return: {m.optimum.annualized_return:.2f}%",
             f"- Annualized volatility (σ): {m.optimum.risk:.2f}%",
             f"- Annualized Sharpe ratio: {m.sharpe_ratio:.2f}",
-            "## Minimum variance portfolio",
+            "### Minimum variance portfolio",
             f"- Annualized return: {m.min_var.annualized_return:.2f}%",
             f"- Annualized volatility (σ): {m.min_var.risk:.2f}%",
         ]
@@ -1374,12 +1651,12 @@ class FSFinance:
             # Contract v32: the top of the efficient frontier. The file has
             # no Sharpe ratio for it, and none is computed here.
             lines += [
-                "## Maximum return portfolio",
+                "### Maximum return portfolio",
                 f"- Annualized return: {m.max_return.point.annualized_return:.2f}%",
                 f"- Annualized volatility (σ): {m.max_return.point.risk:.2f}%",
             ]
         lines += [
-            "## Returns",
+            "### Returns",
             "- Simple (not log) daily returns, annualized arithmetically: "
             f"mean daily return × {m.periods_per_year} and daily σ × √{m.periods_per_year}. "
             "This is not the compounded growth an investor would realize.",
@@ -1459,6 +1736,33 @@ class FSFinance:
             "for this date; reload the page in a minute to download it again."
         )
 
+    def backtest_consistency_markdown(self, data):
+        """
+        Generate a warning if the back test's final optimization differs
+        from the live optimization, which means the files come from
+        different backend runs.
+
+        Parameters
+        ----------
+        data : DateData
+            Data for the selected date.
+
+        Returns
+        -------
+        str
+            Warning markdown, or an empty string if they agree or either
+            file is unavailable.
+        """
+        if data.metadata is None or data.backtest_metadata is None:
+            return ""
+        if final_optimization_agrees(data.metadata, data.backtest_metadata):
+            return ""
+        return (
+            "**Warning:** the back test and the latest optimization appear to come "
+            "from different backend runs. The backend may have been uploading new "
+            "data for this date; reload the page in a minute to download it again."
+        )
+
     def date_warning_markdown(self, data):
         """
         Generate a warning if the files in the selected date folder do not
@@ -1475,7 +1779,12 @@ class FSFinance:
             Warning markdown, or an empty string if everything agrees.
         """
         warnings = folder_date_warnings(
-            data.date, data.metadata, data.forecasts, data.forecasts_metadata
+            data.date,
+            data.metadata,
+            data.forecasts,
+            data.forecasts_metadata,
+            data.backtest_metadata,
+            data.backtest_daily,
         )
         if not warnings:
             return ""
@@ -1672,7 +1981,9 @@ class FSFinance:
         The page is a single column: the date dropdown and the individual
         assets accordion, then the Timeseries
         Analysis section, then the Portfolio Optimization section, each under
-        a `#` heading. On every page load the available dates are listed and
+        a `#` heading. The Portfolio Optimization section stacks two parts
+        under `##` headings: Historical Performance Back Test, then Latest
+        Optimization. On every page load the available dates are listed and
         the newest is selected. Changing the date reloads both sections from
         that date's folder; changing the ticker redraws the time series plot. Plots
         are rebuilt with gr.render() rather than updated in place, because
@@ -1681,8 +1992,9 @@ class FSFinance:
         # Make the accuracy table fill its third of the row beside the plot,
         # show the date-selection title at the size of the "#" section
         # headings without making it a heading (those stay the only
-        # top-level headings), and make the accordions' labels bold
-        # (its size stays the default).
+        # top-level headings), make the accordions' labels bold (its size
+        # stays the default), and make the value on each back test card
+        # (the last line, under its label) large.
         css = """
         .metrics-table table { width: 100% !important; }
         .date-title p {
@@ -1690,6 +2002,11 @@ class FSFinance:
             font-weight: var(--prose-header-text-weight, 600) !important;
         }
         .methods-accordion .label-wrap > span:first-child {
+            font-weight: 700 !important;
+        }
+        .backtest-card p { margin: 0 !important; }
+        .backtest-card p:last-child {
+            font-size: var(--text-xxl) !important;
             font-weight: 700 !important;
         }
         """
@@ -1803,6 +2120,40 @@ class FSFinance:
                 data = self.selected_data(date, markers)
                 if data is None:
                     return
+
+                # Rendered here, not left in the page, so the plot is rebuilt
+                # for each date. The heading stays when the files are missing
+                # (dates before v36), with a message in place of each part.
+                gr.Markdown("## Historical Performance Back Test")
+                backtest_warning_md = self.backtest_consistency_markdown(data)
+                if backtest_warning_md:
+                    gr.Markdown(backtest_warning_md)
+                if data.backtest_metadata is not None:
+                    gr.Markdown(backtest_period_markdown(data.backtest_metadata))
+                    # Gray panels, narrower than Gradio's default minimum so
+                    # the three cards stay on one row on most screens.
+                    with gr.Row():
+                        for label, value in backtest_cards(
+                            data.backtest_metadata.max_sharpe
+                        ):
+                            with gr.Column(
+                                variant="panel",
+                                min_width=160,
+                                elem_classes=["backtest-card"],
+                            ):
+                                gr.Markdown(f"{label}\n\n{value}")
+                else:
+                    gr.Markdown(
+                        f"**Back test results unavailable.** {data.backtest_metadata_error}"
+                    )
+                if data.backtest_daily is not None:
+                    backtest_plot(data.backtest_daily)
+                elif data.backtest_published:
+                    gr.Markdown(
+                        f"**Back test plot unavailable.** {data.backtest_daily_error}"
+                    )
+
+                gr.Markdown("## Latest Optimization")
                 consistency_md = self.portfolio_consistency_markdown(data)
                 if consistency_md:
                     gr.Markdown(consistency_md)
@@ -1819,8 +2170,9 @@ class FSFinance:
                             f"**Portfolio plot unavailable.** {data.plot_data_error}"
                         )
                 # The random portfolio caption must accompany the plot; it is
-                # normally in the assumptions accordion, which needs the
-                # metadata, so it goes here when the metadata did not load.
+                # normally in the assumptions accordion, whose optimization
+                # part needs the metadata, so it goes here when the metadata
+                # did not load.
                 caption_md = standalone_random_sampling_markdown(
                     data.plot_data is not None, data.metadata
                 )
@@ -1858,20 +2210,30 @@ class FSFinance:
                 # the same way (bold label via the methods-accordion class).
                 # It includes the contract's wording on the random portfolios
                 # (the near-frontier share only for v32+ dates) when the plot
-                # is shown. The investment-advice disclaimer is not repeated
-                # here; it is shown once, at the bottom of the page.
+                # is shown, and the back test's assumptions for v36+ dates.
+                # The investment-advice disclaimer is not repeated here; it
+                # is shown once, at the bottom of the page.
+                assumptions = []
                 if data.metadata is not None:
+                    assumptions.append(
+                        self.optimization_assumptions_markdown(
+                            data.metadata,
+                            show_random_sampling=data.plot_data is not None,
+                        )
+                    )
+                if data.backtest_metadata is not None:
+                    assumptions.append(
+                        backtest_assumptions_markdown(data.backtest_metadata)
+                    )
+                if assumptions:
                     with gr.Accordion(
-                        "Portfolio optimization and random sampling assumptions...",
+                        "Portfolio optimization, random sampling, and back testing "
+                        "assumptions...",
                         open=False,
                         elem_classes=["methods-accordion"],
                     ):
-                        gr.Markdown(
-                            self.optimization_assumptions_markdown(
-                                data.metadata,
-                                show_random_sampling=data.plot_data is not None,
-                            )
-                        )
+                        # A blank line ends a bullet list before the next part.
+                        gr.Markdown((os.linesep * 2).join(assumptions))
 
             gr.Markdown(
                 f"Data format: interface contract v{CONTRACT_VERSION}. "

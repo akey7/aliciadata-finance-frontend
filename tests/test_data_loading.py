@@ -13,14 +13,19 @@ import pytest
 import yaml
 
 from data_loading import (
+    BACKTEST_EQUAL_WEIGHT_WEALTH,
+    BACKTEST_MAX_SHARPE_WEALTH,
     PLOT_GROUPS,
     DataLoadError,
     arima_orders,
     available_dates,
     clean_weights,
+    final_optimization_agrees,
     folder_date_warnings,
     forecast_tickers,
     key_date,
+    load_backtest_daily,
+    load_backtest_metadata,
     load_forecasts_metadata,
     marker_dates,
     naive_column,
@@ -729,3 +734,188 @@ def test_folder_date_warnings_forecasts_metadata(tmp_path):
     warnings = folder_date_warnings("2026-10-08", None, forecasts, other)
     assert len(warnings) == 2
     assert all("all_forecasts_metadata.yml" in warning for warning in warnings)
+
+
+BACKTEST_DAILY_CSV = """date,max_sharpe_daily_return,equal_weight_daily_return,max_sharpe_wealth,equal_weight_wealth,unknown
+2026-10-07,,,1.0,1.0,x
+2026-10-09,0.5,-0.2,1.01,0.998,x
+2026-10-08,0.5,0.0,1.005,1.0,x
+"""
+
+
+def v38_backtest_metadata() -> dict:
+    """
+    Return a contract v38 portfolio_backtest_metadata.yml document that
+    agrees with v7_metadata(), plus an unknown key that readers must ignore.
+    """
+    return {
+        "annualization": {"method": "compounded", "periods_per_year": 252},
+        "assumptions": {"fallback": "rebalance to the previous target weights"},
+        "evaluation_window": {
+            "end_date": "2026-10-09",
+            "initial_wealth_date": "2026-10-07",
+            "start_date": "2026-10-08",
+            "trading_days": 2,
+        },
+        "final_optimization": {
+            "annualized_return": 34.34,
+            "date": "2026-10-09",
+            "risk": 12.44,
+            "sharpe_ratio": 2.435,
+        },
+        "metrics": {
+            "equal_weight": {
+                "cagr": -20.0,
+                "cumulative_return": -0.2,
+                "max_drawdown": -0.2,
+            },
+            "max_sharpe": {
+                "cagr": 14.6,
+                "cumulative_return": 3.3,
+                "max_drawdown": -6.1,
+            },
+        },
+        "rebalances": [{"date": "2026-10-07", "status": "optimized"}],
+        "schedule": {
+            "fallback_count": 0,
+            "rebalance_count": 1,
+            "rebalance_interval_sessions": 2,
+            "training_window_returns": 252,
+        },
+        "units": {
+            "cagr": "percent",
+            "cumulative_return": "percent",
+            "max_drawdown": "percent",
+            "wealth": "usd",
+        },
+        "some_future_key": {"ignored": True},
+    }
+
+
+def test_load_backtest_daily(tmp_path):
+    daily = load_backtest_daily(write_csv(tmp_path / "d.csv", BACKTEST_DAILY_CSV))
+    # Sorted by date, with only the wealth columns kept.
+    assert list(daily.columns) == [
+        BACKTEST_MAX_SHARPE_WEALTH,
+        BACKTEST_EQUAL_WEIGHT_WEALTH,
+    ]
+    assert [day.date().isoformat() for day in daily.index] == [
+        "2026-10-07",
+        "2026-10-08",
+        "2026-10-09",
+    ]
+    assert daily[BACKTEST_MAX_SHARPE_WEALTH].iloc[0] == 1.0
+    assert daily[BACKTEST_EQUAL_WEIGHT_WEALTH].iloc[-1] == 0.998
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("", "readable CSV"),
+        ("day,max_sharpe_wealth,equal_weight_wealth\n2026-10-07,1,1\n", "`date` column"),
+        ("date,max_sharpe_wealth,equal_weight_wealth\nsoon,1,1\n", "`date` column"),
+        ("date,max_sharpe_wealth\n2026-10-07,1\n", "equal_weight_wealth"),
+        ("date,max_sharpe_wealth,equal_weight_wealth\n2026-10-07,a,1\n", "not numeric"),
+        ("date,max_sharpe_wealth,equal_weight_wealth\n2026-10-07,,1\n", "empty wealth"),
+        ("date,max_sharpe_wealth,equal_weight_wealth\n", "no rows"),
+    ],
+)
+def test_load_backtest_daily_rejects_bad_files(tmp_path, text, message):
+    with pytest.raises(DataLoadError, match=message):
+        load_backtest_daily(write_csv(tmp_path / "d.csv", text))
+
+
+def test_load_backtest_daily_missing_file(tmp_path):
+    with pytest.raises(DataLoadError, match="not available"):
+        load_backtest_daily(str(tmp_path / "missing.csv"))
+
+
+def test_load_backtest_metadata(tmp_path):
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", v38_backtest_metadata()))
+    assert m.initial_wealth_date == "2026-10-07"
+    assert m.start_date == "2026-10-08"
+    assert m.end_date == "2026-10-09"
+    assert (m.trading_days, m.rebalance_interval_sessions) == (2, 2)
+    assert (m.training_window_returns, m.rebalance_count) == (252, 1)
+    assert m.fallback_count == 0
+    # The max Sharpe portfolio's metrics, not the baseline's.
+    assert m.max_sharpe.cagr == 14.6
+    assert m.max_sharpe.cumulative_return == 3.3
+    assert m.max_sharpe.max_drawdown == -6.1
+    assert m.fallback_assumption == "rebalance to the previous target weights"
+    assert m.final_optimization.point.risk == 12.44
+
+
+def test_load_backtest_metadata_before_v38(tmp_path):
+    document = v38_backtest_metadata()
+    del document["final_optimization"]
+    del document["assumptions"]
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", document))
+    assert m.final_optimization is None
+    assert m.fallback_assumption is None
+
+
+def test_load_backtest_metadata_ignores_malformed_final_optimization(tmp_path):
+    document = v38_backtest_metadata()
+    del document["final_optimization"]["risk"]
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", document))
+    assert m.final_optimization is None
+    assert m.max_sharpe.cagr == 14.6
+
+
+def test_load_backtest_metadata_rejects_wrong_annualization(tmp_path):
+    document = v38_backtest_metadata()
+    document["annualization"]["method"] = "arithmetic"
+    with pytest.raises(DataLoadError, match="annualization"):
+        load_backtest_metadata(write_yaml(tmp_path / "b.yml", document))
+
+
+def test_load_backtest_metadata_rejects_wrong_units(tmp_path):
+    document = v38_backtest_metadata()
+    document["units"]["max_drawdown"] = "fraction"
+    with pytest.raises(DataLoadError, match="expected `percent`"):
+        load_backtest_metadata(write_yaml(tmp_path / "b.yml", document))
+
+
+def test_load_backtest_metadata_requires_metrics(tmp_path):
+    document = v38_backtest_metadata()
+    del document["metrics"]["max_sharpe"]["cagr"]
+    with pytest.raises(DataLoadError, match="metrics.max_sharpe.cagr"):
+        load_backtest_metadata(write_yaml(tmp_path / "b.yml", document))
+
+
+def test_final_optimization_agrees(tmp_path):
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", v7_metadata()))
+    backtest = load_backtest_metadata(
+        write_yaml(tmp_path / "b.yml", v38_backtest_metadata())
+    )
+    assert final_optimization_agrees(metadata, backtest)
+
+    other_run = v38_backtest_metadata()
+    other_run["final_optimization"]["sharpe_ratio"] = 2.6
+    assert not final_optimization_agrees(
+        metadata, load_backtest_metadata(write_yaml(tmp_path / "b2.yml", other_run))
+    )
+    other_date = v38_backtest_metadata()
+    other_date["final_optimization"]["date"] = "2026-10-08"
+    assert not final_optimization_agrees(
+        metadata, load_backtest_metadata(write_yaml(tmp_path / "b3.yml", other_date))
+    )
+    # Files before v38 have nothing to compare.
+    before_v38 = v38_backtest_metadata()
+    del before_v38["final_optimization"]
+    assert final_optimization_agrees(
+        metadata, load_backtest_metadata(write_yaml(tmp_path / "b4.yml", before_v38))
+    )
+
+
+def test_folder_date_warnings_backtest(tmp_path):
+    backtest = load_backtest_metadata(
+        write_yaml(tmp_path / "b.yml", v38_backtest_metadata())
+    )
+    daily = load_backtest_daily(write_csv(tmp_path / "d.csv", BACKTEST_DAILY_CSV))
+    assert folder_date_warnings("2026-10-09", None, None, None, backtest, daily) == []
+    warnings = folder_date_warnings("2026-10-08", None, None, None, backtest, daily)
+    assert len(warnings) == 2
+    assert "portfolio_backtest_metadata.yml" in warnings[0]
+    assert "portfolio_backtest_daily.csv" in warnings[1]

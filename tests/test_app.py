@@ -4,9 +4,10 @@ made and scored and how ARIMA compared with the naive forecast, for the
 date conversion behind the time series plot, for the portfolio weights
 table, for the portfolio optimization plot (capital allocation line
 clipping, NaN frontier points, legend placement, labels, and the maximum
-return marker), and for the text and tables built from the contract v32
-portfolio sections (assets, constraints, random portfolios). No Gradio
-app is built, and nothing under input/ or the network is touched.
+return marker), for the text and tables built from the contract v32
+portfolio sections (assets, constraints, random portfolios), and for the
+back test's cards, plot data, and assumptions. No Gradio app is built, and
+nothing under input/ or the network is touched.
 """
 
 import warnings
@@ -41,7 +42,25 @@ from app import (
     random_sampling_markdown,
     standalone_random_sampling_markdown,
 )
+from app import (
+    BACKTEST_COLORS,
+    BACKTEST_UNPUBLISHED,
+    BACKTEST_VALUE_COLUMN,
+    DISCLAIMER_MD,
+    DateData,
+    backtest_assumptions_markdown,
+    backtest_cards,
+    backtest_growth_df,
+    backtest_period_markdown,
+    backtest_plot,
+    signed_percent,
+)
 from data_loading import (
+    BACKTEST_EQUAL_WEIGHT_WEALTH,
+    BACKTEST_MAX_SHARPE_WEALTH,
+    BacktestMetadata,
+    BacktestMetrics,
+    FinalOptimization,
     MaxReturnPortfolio,
     PortfolioConstraints,
     PortfolioPoint,
@@ -617,3 +636,161 @@ def test_plot_without_max_return_portfolio():
     fig = portfolio_optimization_figure(plot_data(MAX_SHARPE_X), METADATA)
     labels = [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
     assert "Maximum return portfolio" not in labels
+
+
+def backtest_metadata(**overrides):
+    """Build back test metadata with distinctive window lengths."""
+    values = dict(
+        initial_wealth_date="2026-07-31",
+        start_date="2026-08-03",
+        end_date="2026-10-30",
+        trading_days=61,
+        training_window_returns=252,
+        rebalance_interval_sessions=20,
+        rebalance_count=3,
+        fallback_count=0,
+        max_sharpe=BacktestMetrics(
+            cagr=10.84, cumulative_return=47.3, max_drawdown=-19.6
+        ),
+    )
+    return BacktestMetadata(**{**values, **overrides})
+
+
+def backtest_daily():
+    """Build a two-row wealth table indexed by date."""
+    return pd.DataFrame(
+        {
+            BACKTEST_MAX_SHARPE_WEALTH: [1.0, 1.123456],
+            BACKTEST_EQUAL_WEIGHT_WEALTH: [1.0, 0.9],
+        },
+        index=pd.to_datetime(["2026-10-29", "2026-10-30"]),
+    )
+
+
+def date_data(**overrides):
+    """Build complete data for one date; the files' contents are placeholders."""
+    values = dict(
+        date="2026-10-30",
+        metadata=object(),
+        metadata_error=None,
+        plot_data={},
+        plot_data_error=None,
+        forecasts=object(),
+        forecasts_error=None,
+        forecasts_metadata=None,
+        forecasts_metadata_error=None,
+        forecasts_metadata_published=False,
+        backtest_daily=None,
+        backtest_daily_error=BACKTEST_UNPUBLISHED,
+        backtest_metadata=None,
+        backtest_metadata_error=BACKTEST_UNPUBLISHED,
+        backtest_published=False,
+    )
+    return DateData(**{**values, **overrides})
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (10.84, "+10.8%"),
+        (47.3, "+47.3%"),
+        (-19.6, "−19.6%"),
+        (0.0, "0.0%"),
+        (-0.04, "0.0%"),
+    ],
+)
+def test_signed_percent(value, expected):
+    assert signed_percent(value) == expected
+
+
+def test_backtest_period_has_dates_without_times():
+    text = backtest_period_markdown(backtest_metadata())
+    assert text.startswith("### Max Sharpe Portfolio")
+    assert text.endswith("2026-07-31 – 2026-10-30")
+    assert ":" not in text
+
+
+def test_backtest_cards_order_and_values():
+    assert backtest_cards(backtest_metadata().max_sharpe) == [
+        ("CAGR", "+10.8%"),
+        ("Cumulative", "+47.3%"),
+        ("Max Drawdown", "−19.6%"),
+    ]
+
+
+def test_backtest_growth_df():
+    growth = backtest_growth_df(backtest_daily())
+    assert set(growth["Series"]) == set(BACKTEST_COLORS)
+    assert len(growth) == 4
+    max_sharpe = growth[growth["Series"] == "Max Sharpe portfolio"]
+    # Rounded for the tooltip, but not so far that the line turns stepped.
+    assert max_sharpe[BACKTEST_VALUE_COLUMN].tolist() == [1.0, 1.1235]
+    # Closes at noon, so the date is the same in any viewer's time zone.
+    assert max_sharpe["Date"].dt.hour.tolist() == [12, 12]
+    assert max_sharpe["Trading day"].tolist() == [
+        "2026-10-29 (Thu)",
+        "2026-10-30 (Fri)",
+    ]
+
+
+# Gradio 6.30.0's LinePlot makes this call itself for any datetime column.
+@pytest.mark.filterwarnings("ignore:is_categorical_dtype:DeprecationWarning")
+def test_backtest_plot_uses_data_limits_and_fixed_colors():
+    chart = backtest_plot(backtest_daily())
+    assert chart.color_map == BACKTEST_COLORS
+    assert chart.y_lim == pytest.approx([0.95 * 0.9, 1.05 * 1.1235])
+
+
+def test_backtest_assumptions_fill_settings_from_the_file():
+    text = backtest_assumptions_markdown(backtest_metadata())
+    assert text.startswith("### Back testing")
+    assert "Growth of $1 over the last 61 trading days." in text
+    assert "Every 20 trading days" in text
+    assert "previous 252 daily returns" in text
+    assert "only 3 independent decisions" in text
+    # The disclaimer is shown once, at the bottom of the page.
+    assert DISCLAIMER_MD not in text
+    assert "investment advice" not in text.lower()
+
+
+def test_backtest_assumptions_mention_fallback_only_when_used():
+    assert "Fallback" not in backtest_assumptions_markdown(backtest_metadata())
+    text = backtest_assumptions_markdown(
+        backtest_metadata(fallback_count=1, fallback_assumption="previous weights")
+    )
+    assert "1 of the 3 rebalances did not use a new optimization" in text
+    assert "(previous weights)" in text
+
+
+def test_backtest_consistency_warning():
+    metadata = SimpleNamespace(
+        date_to="2026-10-30",
+        optimum=PortfolioPoint(annualized_return=30.0, risk=12.0),
+        sharpe_ratio=2.2,
+    )
+
+    def warning(final):
+        data = date_data(
+            metadata=metadata,
+            backtest_metadata=backtest_metadata(final_optimization=final),
+        )
+        # The method uses nothing from the app object, so none is built.
+        return FSFinance.backtest_consistency_markdown(None, data)
+
+    same = FinalOptimization("2026-10-30", PortfolioPoint(30.0, 12.0), 2.2)
+    other = FinalOptimization("2026-10-30", PortfolioPoint(31.0, 12.0), 2.2)
+    assert warning(same) == ""
+    assert warning(None) == ""
+    assert "different backend runs" in warning(other)
+    # Nothing to compare without both files.
+    assert FSFinance.backtest_consistency_markdown(None, date_data()) == ""
+
+
+def test_date_without_backtest_can_be_complete():
+    assert date_data().complete()
+
+
+def test_date_with_failed_backtest_is_not_complete():
+    published = dict(backtest_published=True, backtest_metadata=backtest_metadata())
+    assert not date_data(**published).complete()
+    assert date_data(**published, backtest_daily=backtest_daily()).complete()

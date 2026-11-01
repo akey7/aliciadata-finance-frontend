@@ -14,6 +14,8 @@ The backend does all the modeling and publishes its results; this app only lists
    <portfolio optimization folder>/YYYY-MM-DD/
        optimization_metadata.yml             marker: the date is complete
        portfolio_optimization_plot_data.h5
+       portfolio_backtest_daily.csv          optional (contract v36+)
+       portfolio_backtest_metadata.yml       optional (contract v36+)
    <time series folder>/YYYY-MM-DD/
        all_forecasts.csv                     marker
        all_forecasts_metadata.yml            optional (contract v21+)
@@ -34,7 +36,9 @@ The backend does all the modeling and publishes its results; this app only lists
    └─ 3. DISPLAY   per visitor (selected date and ticker in Gradio state)
           date selector              date dropdown; individual assets accordion
           # Timeseries Analysis      actual, ARIMA, and naive; backend metrics
-          # Portfolio Optimization   frontier, random portfolios, weights
+          # Portfolio Optimization
+            ## Historical Performance Back Test   metric cards, growth of $1
+            ## Latest Optimization                frontier, random portfolios, weights
           disclaimer, once at the bottom
             │
             ▼
@@ -43,7 +47,7 @@ The backend does all the modeling and publishes its results; this app only lists
 
 The files the backend delivers, and how the app must read them, are specified in the [Interface Contract](INTERFACE_CONTRACT.md). That file is a read-only mirror of the copy in the backend repo. The app requires contract v4 or later data; older files are reported on the dashboard instead of being displayed.
 
-All data lives in one DigitalOcean Space (one S3 bucket) with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and the page's two stacked sections, **Timeseries Analysis** (top) and **Portfolio Optimization** (below), show data from the selected date only. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the Space as well as to read objects.
+All data lives in one DigitalOcean Space (one S3 bucket) with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and the page's two stacked sections, **Timeseries Analysis** (top) and **Portfolio Optimization** (below), show data from the selected date only. The Portfolio Optimization section has two parts, **Historical Performance Back Test** and **Latest Optimization**; dates before contract v36 have no back test files and show a message in place of the first. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the Space as well as to read objects.
 
 ## Installation
 
@@ -134,7 +138,7 @@ Dev and production share the one Space and differ only in the two folder names, 
 
 1. `input/`: Holds input data downloaded from backend, one folder per date: `input/YYYY-MM-DD/<file>`, one folder per date viewed. If it does not exist, `app.py` creates it before access. Files directly in `input/` (from app versions before the date folders) are no longer used and can be deleted.
 
-2. `tests/`: Unit tests for the data loaders (including the optional forecast columns and `all_forecasts_metadata.yml`), the available-date logic, bucket listing, and the app's text describing how forecasts are made. They build synthetic files in a temporary folder or use a fake S3 client, and never touch `input/` or the network. Run them from the repo root with `uv run pytest`.
+2. `tests/`: Unit tests for the data loaders (including the optional forecast columns, `all_forecasts_metadata.yml`, and the back test files), the available-date logic, bucket listing, and the app's text describing how forecasts are made. They build synthetic files in a temporary folder or use a fake S3 client, and never touch `input/` or the network. Run them from the repo root with `uv run pytest`.
 
 ### Scripts
 
