@@ -1,7 +1,7 @@
 """
 Load and validate the files the backend delivers to the S3 buckets.
 
-Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 33)
+Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 41)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
@@ -28,16 +28,30 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 33
+CONTRACT_VERSION = 41
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
 FORECASTS_KEY = "all_forecasts.csv"
 # Optional (added in contract v21); not part of the date availability rule.
 FORECASTS_METADATA_KEY = "all_forecasts_metadata.yml"
+# Optional (added in contract v36); not part of the date availability rule.
+BACKTEST_DAILY_KEY = "portfolio_backtest_daily.csv"
+BACKTEST_METADATA_KEY = "portfolio_backtest_metadata.yml"
 
 SUPPORTED_ANNUALIZATION = "arithmetic"
+SUPPORTED_BACKTEST_ANNUALIZATION = "compounded"
 SUPPORTED_UNITS = "percent_per_year"
+# portfolio_backtest_daily.csv columns the app plots.
+BACKTEST_MAX_SHARPE_WEALTH = "max_sharpe_wealth"
+BACKTEST_EQUAL_WEIGHT_WEALTH = "equal_weight_wealth"
+# Units portfolio_backtest_metadata.yml must declare for what the app shows.
+EXPECTED_BACKTEST_UNITS = {
+    "cagr": "percent",
+    "cumulative_return": "percent",
+    "max_drawdown": "percent",
+    "wealth": "usd",
+}
 PLOT_GROUPS = (
     "efficient_frontier",
     "tangency_line",
@@ -248,6 +262,57 @@ class ForecastsMetadata:
             The ticker's metrics, or None if the file has none for it.
         """
         return self.ticker_metrics.get(ticker.lower())
+
+
+@dataclass(frozen=True)
+class BacktestMetrics:
+    """
+    Realized results of one back test portfolio, in percent. cagr is
+    compounded (not the arithmetic annualized returns of
+    optimization_metadata.yml), cumulative_return is the compounded total
+    over the scored days, and max_drawdown is zero or negative.
+    """
+
+    cagr: float
+    cumulative_return: float
+    max_drawdown: float
+
+
+@dataclass(frozen=True)
+class FinalOptimization:
+    """
+    The live optimization as recorded in portfolio_backtest_metadata.yml
+    (contract v38). The point is annualized (arithmetic) and in percent.
+    """
+
+    date: str
+    point: PortfolioPoint
+    sharpe_ratio: float
+
+
+@dataclass(frozen=True)
+class BacktestMetadata:
+    """
+    Contents of portfolio_backtest_metadata.yml (contract v36) that the
+    frontend uses. initial_wealth_date is the close at which the back test
+    starts at $1.00, and start_date the first scored day after it. The
+    window lengths are backend settings. fallback_assumption is the
+    backend's description of the fallback, None when absent.
+    final_optimization is None for files before v38 (or when the section is
+    malformed).
+    """
+
+    initial_wealth_date: str
+    start_date: str
+    end_date: str
+    trading_days: int
+    training_window_returns: int
+    rebalance_interval_sessions: int
+    rebalance_count: int
+    fallback_count: int
+    max_sharpe: BacktestMetrics
+    fallback_assumption: str | None = None
+    final_optimization: FinalOptimization | None = None
 
 
 def key_date(key: str) -> str | None:
@@ -610,15 +675,15 @@ def _parse_random_portfolios(document: dict) -> RandomPortfolioStats:
 
 def _optional_section(document: dict, key: str, parser):
     """
-    Parse an optional section of optimization_metadata.yml, such as the
-    contract v32 sections. A missing section (older files) gives None; a
-    malformed one is ignored with a console message, so the rest of the
-    file can still be shown.
+    Parse an optional section of a YAML file, such as the contract v32
+    sections of optimization_metadata.yml. A missing section (older files)
+    gives None; a malformed one is ignored with a console message, so the
+    rest of the file can still be shown.
 
     Parameters
     ----------
     document : dict
-        Parsed optimization_metadata.yml.
+        Parsed YAML document.
 
     key : str
         Top-level key of the section.
@@ -1204,6 +1269,182 @@ def load_forecasts_metadata(path: str) -> ForecastsMetadata:
     )
 
 
+def load_backtest_daily(path: str) -> pd.DataFrame:
+    """
+    Load and validate portfolio_backtest_daily.csv (contract v36).
+
+    The index is `date`, sorted ascending. Only the wealth columns, in US
+    dollars, are kept; the daily returns and any unknown columns are
+    ignored. The contract promises a value on every row, so an empty or
+    non-numeric wealth cell rejects the file.
+
+    Parameters
+    ----------
+    path : str
+        Local path of the downloaded file.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns BACKTEST_MAX_SHARPE_WEALTH and BACKTEST_EQUAL_WEIGHT_WEALTH,
+        indexed by date. The row count is read from the file.
+    """
+    key = BACKTEST_DAILY_KEY
+    _require_file(path, key)
+    try:
+        df = pd.read_csv(path, index_col="date", encoding="utf-8")
+        df.index = pd.to_datetime(df.index, format="%Y-%m-%d")
+    except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError):
+        raise DataLoadError(f"`{key}` is not a readable CSV file.")
+    except ValueError:
+        raise DataLoadError(f"`{key}` needs a `date` column of dates.")
+    columns = [BACKTEST_MAX_SHARPE_WEALTH, BACKTEST_EQUAL_WEIGHT_WEALTH]
+    for column in columns:
+        if column not in df.columns:
+            raise DataLoadError(f"`{key}` is missing column `{column}`.")
+        try:
+            df[column] = pd.to_numeric(df[column], errors="raise").astype(float)
+        except (TypeError, ValueError):
+            raise DataLoadError(f"`{key}` column `{column}` is not numeric.")
+    df = df[columns]
+    if df.empty:
+        raise DataLoadError(f"`{key}` has no rows.")
+    if df.isna().any(axis=None):
+        raise DataLoadError(f"`{key}` has empty wealth values.")
+    return df.sort_index()
+
+
+def _parse_final_optimization(document: dict) -> FinalOptimization:
+    """
+    Parse the `final_optimization` section (contract v38). The training
+    window, risk-free rate, and weights are not shown and are ignored.
+
+    Parameters
+    ----------
+    document : dict
+        Parsed portfolio_backtest_metadata.yml.
+
+    Returns
+    -------
+    FinalOptimization
+        The live optimization's date, return, volatility, and Sharpe ratio.
+    """
+    key = BACKTEST_METADATA_KEY
+    return FinalOptimization(
+        date=str(_get(document, "final_optimization.date", key)),
+        point=PortfolioPoint(
+            annualized_return=_get_float(
+                document, "final_optimization.annualized_return", key
+            ),
+            risk=_get_float(document, "final_optimization.risk", key),
+        ),
+        sharpe_ratio=_get_float(document, "final_optimization.sharpe_ratio", key),
+    )
+
+
+def load_backtest_metadata(path: str) -> BacktestMetadata:
+    """
+    Load and validate portfolio_backtest_metadata.yml (contract v36).
+
+    The file must declare compounded annualization and the units the
+    contract specifies for what the app shows, so values are never shown
+    with the wrong units. `final_optimization` (v38) is optional. Metrics
+    are read as delivered, never computed here, and `rebalances` and other
+    keys the app does not show are ignored.
+
+    Parameters
+    ----------
+    path : str
+        Local path of the downloaded file.
+
+    Returns
+    -------
+    BacktestMetadata
+        Validated metadata.
+    """
+    key = BACKTEST_METADATA_KEY
+    document = _read_yaml_mapping(path, key)
+    method = str(_get(document, "annualization.method", key))
+    if method != SUPPORTED_BACKTEST_ANNUALIZATION:
+        raise DataLoadError(f"`{key}` uses unsupported annualization method `{method}`.")
+    for quantity, expected in EXPECTED_BACKTEST_UNITS.items():
+        found = str(_get(document, f"units.{quantity}", key))
+        if found != expected:
+            raise DataLoadError(
+                f"`{key}` declares `{quantity}` in `{found}`, expected `{expected}`."
+            )
+    return BacktestMetadata(
+        initial_wealth_date=str(
+            _get(document, "evaluation_window.initial_wealth_date", key)
+        ),
+        start_date=str(_get(document, "evaluation_window.start_date", key)),
+        end_date=str(_get(document, "evaluation_window.end_date", key)),
+        trading_days=int(_get_float(document, "evaluation_window.trading_days", key)),
+        training_window_returns=int(
+            _get_float(document, "schedule.training_window_returns", key)
+        ),
+        rebalance_interval_sessions=int(
+            _get_float(document, "schedule.rebalance_interval_sessions", key)
+        ),
+        rebalance_count=int(_get_float(document, "schedule.rebalance_count", key)),
+        fallback_count=int(_get_float(document, "schedule.fallback_count", key)),
+        max_sharpe=BacktestMetrics(
+            cagr=_get_float(document, "metrics.max_sharpe.cagr", key),
+            cumulative_return=_get_float(
+                document, "metrics.max_sharpe.cumulative_return", key
+            ),
+            max_drawdown=_get_float(document, "metrics.max_sharpe.max_drawdown", key),
+        ),
+        fallback_assumption=_optional_str(document.get("assumptions"), "fallback"),
+        final_optimization=_optional_section(
+            document, "final_optimization", _parse_final_optimization
+        ),
+    )
+
+
+def final_optimization_agrees(
+    metadata: OptimizationMetadata,
+    backtest_metadata: BacktestMetadata,
+    rel_tol: float = 1e-6,
+) -> bool:
+    """
+    Check that the back test's final optimization is the live optimization.
+
+    Within one backend run they are identical (contract v38), but during a
+    same-day re-run the files can briefly come from different runs.
+
+    Parameters
+    ----------
+    metadata : OptimizationMetadata
+        Loaded optimization_metadata.yml.
+
+    backtest_metadata : BacktestMetadata
+        Loaded portfolio_backtest_metadata.yml.
+
+    rel_tol : float
+        Relative tolerance for the comparison.
+
+    Returns
+    -------
+    bool
+        True if they match, or if the file has no final optimization
+        (before v38).
+    """
+    final = backtest_metadata.final_optimization
+    if final is None:
+        return True
+    return (
+        final.date == metadata.date_to
+        and math.isclose(
+            final.point.annualized_return,
+            metadata.optimum.annualized_return,
+            rel_tol=rel_tol,
+        )
+        and math.isclose(final.point.risk, metadata.optimum.risk, rel_tol=rel_tol)
+        and math.isclose(final.sharpe_ratio, metadata.sharpe_ratio, rel_tol=rel_tol)
+    )
+
+
 def last_actual_date(df: pd.DataFrame) -> pd.Timestamp | None:
     """
     Find the latest date with at least one actual price.
@@ -1251,15 +1492,19 @@ def folder_date_warnings(
     metadata: OptimizationMetadata | None,
     forecasts: pd.DataFrame | None,
     forecasts_metadata: ForecastsMetadata | None = None,
+    backtest_metadata: BacktestMetadata | None = None,
+    backtest_daily: pd.DataFrame | None = None,
 ) -> list[str]:
     """
     Check that the files in a date folder describe that date.
 
     Per the contract, the folder date equals `date_updated.date_to` in the
-    metadata, the last date with an actual price in the forecasts, and
+    metadata, the last date with an actual price in the forecasts,
     `forecast_window.training_window_end_date` in the forecasts metadata,
     whose `forecast_window.forecast_date` equals the forecasts' live
-    forecast date. Files that are not available are skipped.
+    forecast date, `evaluation_window.end_date` in the back test metadata,
+    and the last date in the back test's daily file. Files that are not
+    available are skipped.
 
     Parameters
     ----------
@@ -1274,6 +1519,12 @@ def folder_date_warnings(
 
     forecasts_metadata : ForecastsMetadata | None
         Loaded all_forecasts_metadata.yml from that folder, if available.
+
+    backtest_metadata : BacktestMetadata | None
+        Loaded portfolio_backtest_metadata.yml from that folder, if available.
+
+    backtest_daily : pd.DataFrame | None
+        Loaded portfolio_backtest_daily.csv from that folder, if available.
 
     Returns
     -------
@@ -1309,5 +1560,17 @@ def folder_date_warnings(
                 f"`{FORECASTS_METADATA_KEY}` in folder {date} describes a forecast "
                 f"for {forecasts_metadata.forecast_date}, but `{FORECASTS_KEY}` "
                 f"forecasts {live_date.date().isoformat()}."
+            )
+    if backtest_metadata is not None and backtest_metadata.end_date != date:
+        warnings.append(
+            f"`{BACKTEST_METADATA_KEY}` in folder {date} has a back test ending "
+            f"{backtest_metadata.end_date}."
+        )
+    if backtest_daily is not None:
+        last_date = backtest_daily.index[-1].date().isoformat()
+        if last_date != date:
+            warnings.append(
+                f"`{BACKTEST_DAILY_KEY}` in folder {date} has values through "
+                f"{last_date}."
             )
     return warnings
