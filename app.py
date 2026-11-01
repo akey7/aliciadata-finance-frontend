@@ -1991,14 +1991,16 @@ class FSFinance:
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
         """
-        # Make the accuracy table fill its third of the row beside the plot,
-        # show the date-selection title at the size of the "#" section
+        # Make the accuracy table fill its third of the row beside the plot
+        # without breaking its column headers across lines, show the
+        # date-selection title at the size of the "#" section
         # headings without making it a heading (those stay the only
         # top-level headings), make the accordions' labels bold (its size
         # stays the default), and give the back test cards a large value (the
         # last line, under its label) and each portfolio's colors.
         css = """
         .metrics-table table { width: 100% !important; }
+        .metrics-table th { white-space: nowrap !important; }
         .date-title p {
             font-size: var(--text-xxl) !important;
             font-weight: var(--prose-header-text-weight, 600) !important;
@@ -2327,8 +2329,20 @@ class FSFinance:
                 outputs=[metrics_md, metrics_summary_md, summary_panel],
             )
 
+        # The default theme, with its bundled Source Sans Pro replaced by IBM
+        # Plex Sans, also bundled with Gradio: in the old font, some bold
+        # capital A's looked smaller than the letters around them. The custom
+        # CSS above uses weight 700, so that weight is loaded too.
+        theme = gr.themes.Default(
+            font=(
+                gr.themes.LocalFont("IBM Plex Sans", weights=(400, 600, 700)),
+                "ui-sans-serif",
+                "system-ui",
+                "sans-serif",
+            )
+        )
         # HF Spaces logs "demo not found in __main__" (no top-level `demo`); harmless.
-        app.launch(css=css)
+        app.launch(css=css, theme=theme)
 
 
 if __name__ == "__main__":
