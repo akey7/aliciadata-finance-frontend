@@ -126,6 +126,9 @@ BACKTEST_COLORS = {
     BACKTEST_SERIES[BACKTEST_MAX_SHARPE_WEALTH]: ACTUAL_COLOR,
     BACKTEST_SERIES[BACKTEST_EQUAL_WEIGHT_WEALTH]: NAIVE_COLOR,
 }
+# Slightly lighter than the max Sharpe line (ACTUAL_COLOR), and still dark
+# enough for the cards' small white labels (contrast above 4.5:1).
+BACKTEST_CARD_COLOR = "#0072B2"
 
 
 @dataclass(frozen=True)
@@ -756,28 +759,28 @@ def signed_percent(value):
     return f"{sign}{abs(rounded):.1f}%"
 
 
-def backtest_period_markdown(metadata):
+def backtest_heading_markdown(metadata):
     """
-    Generate the heading of the back test and the period it covers. The
-    period starts at the close where wealth is $1.00, the left edge of the
-    plot, rather than at the first scored day after it.
+    Generate the heading of the back test, with the period it covers when
+    the metadata is available. The period starts at the close where wealth
+    is $1.00, the left edge of the plot, rather than at the first scored
+    day after it.
 
     Parameters
     ----------
-    metadata : BacktestMetadata
-        Loaded back test metadata.
+    metadata : BacktestMetadata | None
+        Loaded back test metadata, if available.
 
     Returns
     -------
     str
-        A `###` heading and a line such as "2026-07-31 – 2026-10-30".
+        A `##` heading such as "## Historical Performance Back Test:
+        2026-07-31 to 2026-10-30".
     """
-    return os.linesep.join(
-        [
-            "### Max Sharpe Portfolio",
-            f"{metadata.initial_wealth_date} – {metadata.end_date}",
-        ]
-    )
+    heading = "## Historical Performance Back Test"
+    if metadata is None:
+        return heading
+    return f"{heading}: {metadata.initial_wealth_date} to {metadata.end_date}"
 
 
 def backtest_cards(metrics):
@@ -797,7 +800,7 @@ def backtest_cards(metrics):
     """
     return [
         ("CAGR", signed_percent(metrics.cagr)),
-        ("Cumulative", signed_percent(metrics.cumulative_return)),
+        ("Cumulative Return", signed_percent(metrics.cumulative_return)),
         ("Max Drawdown", signed_percent(metrics.max_drawdown)),
     ]
 
@@ -1993,8 +1996,8 @@ class FSFinance:
         # show the date-selection title at the size of the "#" section
         # headings without making it a heading (those stay the only
         # top-level headings), make the accordions' labels bold (its size
-        # stays the default), and make the value on each back test card
-        # (the last line, under its label) large.
+        # stays the default), and give the back test cards a blue background
+        # with white text and a large value (the last line, under its label).
         css = """
         .metrics-table table { width: 100% !important; }
         .date-title p {
@@ -2004,11 +2007,17 @@ class FSFinance:
         .methods-accordion .label-wrap > span:first-child {
             font-weight: 700 !important;
         }
-        .backtest-card p { margin: 0 !important; }
+        .backtest-card p {
+            margin: 0 !important;
+            color: white !important;
+        }
         .backtest-card p:last-child {
             font-size: var(--text-xxl) !important;
             font-weight: 700 !important;
         }
+        """
+        css += f"""
+        .backtest-card {{ background: {BACKTEST_CARD_COLOR} !important; }}
         """
         # Gradio 6 takes custom CSS in launch(), not in the Blocks constructor.
         with gr.Blocks() as app:
@@ -2124,14 +2133,14 @@ class FSFinance:
                 # Rendered here, not left in the page, so the plot is rebuilt
                 # for each date. The heading stays when the files are missing
                 # (dates before v36), with a message in place of each part.
-                gr.Markdown("## Historical Performance Back Test")
+                gr.Markdown(backtest_heading_markdown(data.backtest_metadata))
                 backtest_warning_md = self.backtest_consistency_markdown(data)
                 if backtest_warning_md:
                     gr.Markdown(backtest_warning_md)
                 if data.backtest_metadata is not None:
-                    gr.Markdown(backtest_period_markdown(data.backtest_metadata))
-                    # Gray panels, narrower than Gradio's default minimum so
-                    # the three cards stay on one row on most screens.
+                    gr.Markdown("### Max Sharpe Portfolio")
+                    # Panels narrower than Gradio's default minimum, so the
+                    # three cards stay on one row on most screens.
                     with gr.Row():
                         for label, value in backtest_cards(
                             data.backtest_metadata.max_sharpe

@@ -51,7 +51,7 @@ from app import (
     backtest_assumptions_markdown,
     backtest_cards,
     backtest_growth_df,
-    backtest_period_markdown,
+    backtest_heading_markdown,
     backtest_plot,
     signed_percent,
 )
@@ -703,17 +703,20 @@ def test_signed_percent(value, expected):
     assert signed_percent(value) == expected
 
 
-def test_backtest_period_has_dates_without_times():
-    text = backtest_period_markdown(backtest_metadata())
-    assert text.startswith("### Max Sharpe Portfolio")
-    assert text.endswith("2026-07-31 – 2026-10-30")
-    assert ":" not in text
+def test_backtest_heading_has_dates_without_times():
+    assert backtest_heading_markdown(backtest_metadata()) == (
+        "## Historical Performance Back Test: 2026-07-31 to 2026-10-30"
+    )
+
+
+def test_backtest_heading_without_metadata_has_no_dates():
+    assert backtest_heading_markdown(None) == "## Historical Performance Back Test"
 
 
 def test_backtest_cards_order_and_values():
     assert backtest_cards(backtest_metadata().max_sharpe) == [
         ("CAGR", "+10.8%"),
-        ("Cumulative", "+47.3%"),
+        ("Cumulative Return", "+47.3%"),
         ("Max Drawdown", "−19.6%"),
     ]
 
