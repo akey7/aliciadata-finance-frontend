@@ -49,9 +49,11 @@ from app import (
     DISCLAIMER_MD,
     DateData,
     backtest_assumptions_markdown,
+    backtest_card_rows,
     backtest_cards,
     backtest_growth_df,
-    backtest_period_markdown,
+    backtest_heading_markdown,
+    backtest_metrics_note_markdown,
     backtest_plot,
     signed_percent,
 )
@@ -652,6 +654,9 @@ def backtest_metadata(**overrides):
         max_sharpe=BacktestMetrics(
             cagr=10.84, cumulative_return=47.3, max_drawdown=-19.6
         ),
+        equal_weight=BacktestMetrics(
+            cagr=-2.5, cumulative_return=-0.6, max_drawdown=-4.8
+        ),
     )
     return BacktestMetadata(**{**values, **overrides})
 
@@ -703,19 +708,105 @@ def test_signed_percent(value, expected):
     assert signed_percent(value) == expected
 
 
-def test_backtest_period_has_dates_without_times():
-    text = backtest_period_markdown(backtest_metadata())
-    assert text.startswith("### Max Sharpe Portfolio")
-    assert text.endswith("2026-07-31 – 2026-10-30")
-    assert ":" not in text
+def test_price_history_bolds_only_its_label():
+    metadata = SimpleNamespace(date_from="2025-10-29", date_to="2026-10-30")
+    # The method uses nothing from the app object, so none is built.
+    assert FSFinance.price_history_markdown(None, metadata) == (
+        "**Price history:** daily adjusted closes from 2025-10-29 to 2026-10-30"
+    )
+
+
+def test_backtest_heading_has_dates_without_times():
+    assert backtest_heading_markdown(backtest_metadata()) == (
+        "## Historical Performance Back Test: 2026-07-31 to 2026-10-30"
+    )
+
+
+def test_backtest_heading_without_metadata_has_no_dates():
+    assert backtest_heading_markdown(None) == "## Historical Performance Back Test"
 
 
 def test_backtest_cards_order_and_values():
     assert backtest_cards(backtest_metadata().max_sharpe) == [
         ("CAGR", "+10.8%"),
-        ("Cumulative", "+47.3%"),
+        ("Cumulative Return", "+47.3%"),
         ("Max Drawdown", "−19.6%"),
     ]
+
+
+def test_backtest_volatility_card_is_last_and_unsigned():
+    metrics = BacktestMetrics(
+        cagr=10.84,
+        cumulative_return=47.3,
+        max_drawdown=-19.6,
+        annualized_volatility=12.74,
+    )
+    assert backtest_cards(metrics)[-1] == (
+        "Annualized Volatility (realized)",
+        "12.7%",
+    )
+    assert len(backtest_cards(metrics)) == 4
+
+
+def test_backtest_metrics_note_reads_the_number_of_returns_from_the_file():
+    metrics = BacktestMetrics(
+        cagr=1.0, cumulative_return=1.0, max_drawdown=-1.0, annualized_volatility=9.0
+    )
+    note = backtest_metrics_note_markdown(
+        backtest_metadata(trading_days=60, max_sharpe=metrics)
+    )
+    assert note == (
+        "***Calculated from 60 out-of-sample daily portfolio returns.*** *CAGR and "
+        "cumulative return: higher is better; maximum drawdown: closer to 0% is "
+        "better; annualized realized volatility: lower is better.*"
+    )
+
+
+def test_backtest_metrics_note_mentions_volatility_only_when_shown():
+    note = backtest_metrics_note_markdown(backtest_metadata(trading_days=20))
+    assert "Calculated from 20 out-of-sample" in note
+    assert "volatility" not in note
+    assert note.endswith("closer to 0% is better.*")
+
+
+def test_backtest_card_rows_show_max_sharpe_above_baseline():
+    metadata = backtest_metadata()
+    rows = backtest_card_rows(metadata)
+    assert [row[0].splitlines()[0] for row in rows] == [
+        "### Max Sharpe Portfolio",
+        "### Equal-Weight Baseline Portfolio",
+    ]
+    assert [row[1:] for row in rows] == [
+        (metadata.max_sharpe, "max-sharpe-card"),
+        (metadata.equal_weight, "baseline-card"),
+    ]
+
+
+def test_constraints_label():
+    assert constraints_markdown(CAPPED).startswith("**Constraints:** long-only")
+    assert constraints_markdown(CAPPED, "Rebalance constraints") == (
+        "**Rebalance constraints:** long-only (no short positions), fully invested "
+        "(weights sum to 100%), at most 40.0% in any one ticker."
+    )
+
+
+def test_backtest_constraints_go_under_the_max_sharpe_heading_only():
+    rows = backtest_card_rows(backtest_metadata(), "**Constraints:** long-only.")
+    assert rows[0][0].splitlines() == [
+        "### Max Sharpe Portfolio",
+        "**Constraints:** long-only.",
+    ]
+    assert "Constraints" not in rows[1][0]
+
+
+def test_backtest_baseline_rebalancing_line_is_always_shown():
+    for constraints_md in ("", "**Constraints:** long-only."):
+        heading = backtest_card_rows(backtest_metadata(), constraints_md)[1][0]
+        assert heading.splitlines() == [
+            "### Equal-Weight Baseline Portfolio",
+            "**Rebalancing:** long-only (no short positions), fully invested (weights "
+            "sum to 100%), weights split equally among tickers.",
+        ]
 
 
 def test_backtest_growth_df():
@@ -748,9 +839,22 @@ def test_backtest_assumptions_fill_settings_from_the_file():
     assert "Every 20 trading days" in text
     assert "previous 252 daily returns" in text
     assert "only 3 independent decisions" in text
+    assert "weights can drift past the per-ticker weight cap" in text
     # The disclaimer is shown once, at the bottom of the page.
     assert DISCLAIMER_MD not in text
     assert "investment advice" not in text.lower()
+
+
+def test_backtest_assumptions_explain_volatility_only_when_shown():
+    assert "Realized versus estimated" not in backtest_assumptions_markdown(
+        backtest_metadata()
+    )
+    metrics = BacktestMetrics(
+        cagr=1.0, cumulative_return=1.0, max_drawdown=-1.0, annualized_volatility=9.0
+    )
+    text = backtest_assumptions_markdown(backtest_metadata(max_sharpe=metrics))
+    assert "Realized versus estimated volatility" in text
+    assert "with only 61 returns" in text
 
 
 def test_backtest_assumptions_mention_fallback_only_when_used():

@@ -120,12 +120,23 @@ BACKTEST_DATE_COLUMN = "Date"
 BACKTEST_VALUE_COLUMN = "Value of $1 ($)"
 BACKTEST_SERIES = {
     BACKTEST_MAX_SHARPE_WEALTH: "Max Sharpe portfolio",
-    BACKTEST_EQUAL_WEIGHT_WEALTH: "Equal-weight baseline",
+    BACKTEST_EQUAL_WEIGHT_WEALTH: "Equal-weight baseline portfolio",
 }
 BACKTEST_COLORS = {
     BACKTEST_SERIES[BACKTEST_MAX_SHARPE_WEALTH]: ACTUAL_COLOR,
     BACKTEST_SERIES[BACKTEST_EQUAL_WEIGHT_WEALTH]: NAIVE_COLOR,
 }
+# The max Sharpe line's blue. White text has the better contrast on it:
+# about 5.2:1.
+BACKTEST_CARD_COLOR = "#0072B2"
+# A lighter version of the baseline line's gray (NAIVE_COLOR), so its black
+# text stands out: about 13:1 contrast.
+BACKTEST_BASELINE_CARD_COLOR = "#CCCCCC"
+# True of any equal-weight portfolio, so no value is read from the files.
+BACKTEST_BASELINE_REBALANCING = (
+    "**Rebalancing:** long-only (no short positions), fully invested (weights sum "
+    "to 100%), weights split equally among tickers."
+)
 
 
 @dataclass(frozen=True)
@@ -488,7 +499,7 @@ def weight_cap_binds(constraints):
     return constraints is not None and constraints.weight_cap < 100
 
 
-def constraints_markdown(constraints):
+def constraints_markdown(constraints, label="Constraints"):
     """
     Describe the optimizer's constraints in one line, from the contract
     v32 `constraints` section. No constraint value is assumed.
@@ -497,6 +508,9 @@ def constraints_markdown(constraints):
     ----------
     constraints : PortfolioConstraints | None
         The date's constraints, if available.
+
+    label : str
+        Bold label that starts the line.
 
     Returns
     -------
@@ -516,7 +530,7 @@ def constraints_markdown(constraints):
         parts.append(f"at most {constraints.weight_cap:.1f}% in any one ticker")
     else:
         parts.append("no binding per-ticker weight cap")
-    return f"**Constraints:** {', '.join(parts)}."
+    return f"**{label}:** {', '.join(parts)}."
 
 
 def assets_caption_markdown(constraints):
@@ -756,34 +770,35 @@ def signed_percent(value):
     return f"{sign}{abs(rounded):.1f}%"
 
 
-def backtest_period_markdown(metadata):
+def backtest_heading_markdown(metadata):
     """
-    Generate the heading of the back test and the period it covers. The
-    period starts at the close where wealth is $1.00, the left edge of the
-    plot, rather than at the first scored day after it.
+    Generate the heading of the back test, with the period it covers when
+    the metadata is available. The period starts at the close where wealth
+    is $1.00, the left edge of the plot, rather than at the first scored
+    day after it.
 
     Parameters
     ----------
-    metadata : BacktestMetadata
-        Loaded back test metadata.
+    metadata : BacktestMetadata | None
+        Loaded back test metadata, if available.
 
     Returns
     -------
     str
-        A `###` heading and a line such as "2026-07-31 – 2026-10-30".
+        A `##` heading such as "## Historical Performance Back Test:
+        2026-07-31 to 2026-10-30".
     """
-    return os.linesep.join(
-        [
-            "### Max Sharpe Portfolio",
-            f"{metadata.initial_wealth_date} – {metadata.end_date}",
-        ]
-    )
+    heading = "## Historical Performance Back Test"
+    if metadata is None:
+        return heading
+    return f"{heading}: {metadata.initial_wealth_date} to {metadata.end_date}"
 
 
 def backtest_cards(metrics):
     """
     Return the label and value of each back test metric card. The metrics
-    come from the backend; nothing is computed here.
+    come from the backend; nothing is computed here. The realized volatility
+    card is last, on the right of the row, and only for contract v42+ dates.
 
     Parameters
     ----------
@@ -793,12 +808,85 @@ def backtest_cards(metrics):
     Returns
     -------
     list[tuple[str, str]]
-        (label, signed percentage), in display order.
+        (label, percentage), in display order. Returns and drawdowns are
+        signed; volatility has no direction, so it is not.
     """
-    return [
+    cards = [
         ("CAGR", signed_percent(metrics.cagr)),
-        ("Cumulative", signed_percent(metrics.cumulative_return)),
+        ("Cumulative Return", signed_percent(metrics.cumulative_return)),
         ("Max Drawdown", signed_percent(metrics.max_drawdown)),
+    ]
+    if metrics.annualized_volatility is not None:
+        cards.append(
+            (
+                "Annualized Volatility (realized)",
+                f"{metrics.annualized_volatility:.1f}%",
+            )
+        )
+    return cards
+
+
+def backtest_metrics_note_markdown(metadata):
+    """
+    Generate the note below the back test cards on how to read them. The
+    number of returns is read from the file, and volatility is mentioned
+    only when a card shows it (contract v42+).
+
+    Parameters
+    ----------
+    metadata : BacktestMetadata
+        Loaded back test metadata.
+
+    Returns
+    -------
+    str
+        One line of bold italic and italic markdown.
+    """
+    directions = (
+        "CAGR and cumulative return: higher is better; maximum drawdown: closer to "
+        "0% is better"
+    )
+    if (
+        metadata.max_sharpe.annualized_volatility is not None
+        or metadata.equal_weight.annualized_volatility is not None
+    ):
+        directions += "; annualized realized volatility: lower is better"
+    return (
+        f"***Calculated from {metadata.trading_days} out-of-sample daily portfolio "
+        f"returns.*** *{directions}.*"
+    )
+
+
+def backtest_card_rows(metadata, constraints_md=""):
+    """
+    Return what each row of back test metric cards shows, in display order.
+
+    Parameters
+    ----------
+    metadata : BacktestMetadata
+        Loaded back test metadata.
+
+    constraints_md : str
+        The constraints line (constraints_markdown), shown directly below
+        the Max Sharpe Portfolio heading. They do not apply to the baseline,
+        whose own rebalancing line is always shown.
+
+    Returns
+    -------
+    list[tuple[str, BacktestMetrics, str]]
+        For each portfolio: the markdown above its cards (a `###` heading
+        and how it is rebalanced), its metrics, and the CSS class that sets
+        its cards' colors.
+    """
+    max_sharpe_heading = "### Max Sharpe Portfolio"
+    if constraints_md:
+        max_sharpe_heading += os.linesep + constraints_md
+    baseline_heading = os.linesep.join(
+        ["### Equal-Weight Baseline Portfolio", BACKTEST_BASELINE_REBALANCING]
+    )
+    return [
+        (max_sharpe_heading, metadata.max_sharpe, "max-sharpe-card"),
+        (baseline_heading, metadata.equal_weight, "baseline-card"),
     ]
 
 
@@ -896,6 +984,20 @@ def backtest_assumptions_markdown(metadata):
     n = m.trading_days
     r = m.rebalance_interval_sessions
     t = m.training_window_returns
+    volatility_note = []
+    if (
+        m.max_sharpe.annualized_volatility is not None
+        or m.equal_weight.annualized_volatility is not None
+    ):
+        # The volatility cards exist only for contract v42+ dates.
+        volatility_note = [
+            "- **Realized versus estimated volatility:** annualized volatility "
+            "(realized) is the sample standard deviation of the portfolio's daily "
+            "simple returns over the back test × √252, in percent. It is measured out "
+            "of sample, while the volatility plotted under Latest Optimization is an "
+            "in-sample estimate. Scaling by √252 assumes daily returns are serially "
+            f"uncorrelated, and with only {n} returns the value is itself noisy.",
+        ]
     lines = [
         "### Back testing",
         f"Growth of $1 over the last {n} trading days. Every {r} trading days, the "
@@ -906,15 +1008,18 @@ def backtest_assumptions_markdown(metadata):
         "short period for a fixed set of tickers chosen with hindsight, so this does "
         "not show that either portfolio is better.",
         "",
+        "- **Rebalance constraints:** they apply to the target weights set at each rebalance. "
+        "Between rebalances, weights can drift past the per-ticker weight cap.",
         "- **Metrics:** cumulative return is the compounded total over the period, in "
         "percent. CAGR is the compound annual growth rate, in percent. Max drawdown is "
         "the largest peak-to-trough decline of the portfolio's value, in percent.",
         "- **CAGR and annualized return are different quantities:** CAGR is compounded "
-        "and realized over the back test, while the annualized returns under Latest "
-        "Optimization are arithmetic, in-sample estimates.",
+        "and realized over the back test, while the annualized returns plotted under "
+        "Latest Optimization are arithmetic, in-sample estimates.",
         "- **CAGR extrapolates:** it scales a short window to a full year, so a few "
         "good days give a large number. Prefer the cumulative return as the headline "
         "figure.",
+        *volatility_note,
         f"- **Small sample:** one window of {n} trading days cannot show that either "
         "portfolio is better. The difference is one noisy outcome, and the back test "
         f"has only {m.rebalance_count} independent decisions.",
@@ -1598,8 +1703,8 @@ class FSFinance:
 
     def price_history_markdown(self, metadata):
         """
-        Generate the heading above the weights table stating the price
-        history both portfolios were estimated from.
+        Generate the line under the Latest Optimization heading stating the
+        price history both portfolios were estimated from.
 
         Parameters
         ----------
@@ -1609,59 +1714,13 @@ class FSFinance:
         Returns
         -------
         str
-            A `###` heading, e.g. "### Price history: daily adjusted closes
-            from 2025-10-23 to 2026-10-23".
+            E.g. "**Price history:** daily adjusted closes from 2025-10-23
+            to 2026-10-23".
         """
         return (
-            f"### Price history: daily adjusted closes from {metadata.date_from} "
+            f"**Price history:** daily adjusted closes from {metadata.date_from} "
             f"to {metadata.date_to}"
         )
-
-    def optimization_metadata_markdown(self, metadata):
-        """
-        Generate markdown of optimization metadata: annualized
-        performance of the maximum Sharpe ratio and minimum variance
-        portfolios, and of the maximum return portfolio for contract v32+
-        dates, and how returns are computed. The price history window
-        is shown above the weights table (price_history_markdown) and the
-        assumptions in an accordion below it
-        (optimization_assumptions_markdown).
-
-        Parameters
-        ----------
-        metadata : OptimizationMetadata
-            Loaded optimization metadata.
-
-        Returns
-        -------
-        str
-            String of markdown
-        """
-        m = metadata
-        lines = [
-            "### Maximum Sharpe ratio portfolio",
-            f"- Annualized return: {m.optimum.annualized_return:.2f}%",
-            f"- Annualized volatility (σ): {m.optimum.risk:.2f}%",
-            f"- Annualized Sharpe ratio: {m.sharpe_ratio:.2f}",
-            "### Minimum variance portfolio",
-            f"- Annualized return: {m.min_var.annualized_return:.2f}%",
-            f"- Annualized volatility (σ): {m.min_var.risk:.2f}%",
-        ]
-        if m.max_return is not None:
-            # Contract v32: the top of the efficient frontier. The file has
-            # no Sharpe ratio for it, and none is computed here.
-            lines += [
-                "### Maximum return portfolio",
-                f"- Annualized return: {m.max_return.point.annualized_return:.2f}%",
-                f"- Annualized volatility (σ): {m.max_return.point.risk:.2f}%",
-            ]
-        lines += [
-            "### Returns",
-            "- Simple (not log) daily returns, annualized arithmetically: "
-            f"mean daily return × {m.periods_per_year} and daily σ × √{m.periods_per_year}. "
-            "This is not the compounded growth an investor would realize.",
-        ]
-        return os.linesep.join(lines)
 
     def optimization_assumptions_markdown(self, metadata, show_random_sampling):
         """
@@ -1689,11 +1748,10 @@ class FSFinance:
         m = metadata
         lines = [
             "- **Estimation window:** expected returns and covariances are estimated "
-            "from the price history shown above the weights table, so the optimum is "
-            "noisy and sensitive to the dates chosen.",
+            "from the price history shown under the Latest Optimization heading, so "
+            "the optimum is noisy and sensitive to the dates chosen.",
             f"- **Risk-free rate:** {m.risk_free_rate:.2f}% per year, the 3-month U.S. "
             f"Treasury bill rate (FRED series DTB3) observed {m.risk_free_rate_date}.",
-            "- **Sharpe ratio:** (annualized return − risk-free rate) / annualized volatility.",
             "- **Weights** are in percent and rounded, so they may not sum to exactly 100%.",
         ]
         if m.min_var_weights is not None:
@@ -1989,14 +2047,16 @@ class FSFinance:
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
         """
-        # Make the accuracy table fill its third of the row beside the plot,
-        # show the date-selection title at the size of the "#" section
+        # Make the accuracy table fill its third of the row beside the plot
+        # without breaking its column headers across lines, show the
+        # date-selection title at the size of the "#" section
         # headings without making it a heading (those stay the only
         # top-level headings), make the accordions' labels bold (its size
-        # stays the default), and make the value on each back test card
-        # (the last line, under its label) large.
+        # stays the default), and give the back test cards a large value (the
+        # last line, under its label) and each portfolio's colors.
         css = """
         .metrics-table table { width: 100% !important; }
+        .metrics-table th { white-space: nowrap !important; }
         .date-title p {
             font-size: var(--text-xxl) !important;
             font-weight: var(--prose-header-text-weight, 600) !important;
@@ -2009,6 +2069,12 @@ class FSFinance:
             font-size: var(--text-xxl) !important;
             font-weight: 700 !important;
         }
+        """
+        css += f"""
+        .max-sharpe-card {{ background: {BACKTEST_CARD_COLOR} !important; }}
+        .max-sharpe-card p {{ color: white !important; }}
+        .baseline-card {{ background: {BACKTEST_BASELINE_CARD_COLOR} !important; }}
+        .baseline-card p {{ color: black !important; }}
         """
         # Gradio 6 takes custom CSS in launch(), not in the Blocks constructor.
         with gr.Blocks() as app:
@@ -2124,24 +2190,30 @@ class FSFinance:
                 # Rendered here, not left in the page, so the plot is rebuilt
                 # for each date. The heading stays when the files are missing
                 # (dates before v36), with a message in place of each part.
-                gr.Markdown("## Historical Performance Back Test")
+                gr.Markdown(backtest_heading_markdown(data.backtest_metadata))
                 backtest_warning_md = self.backtest_consistency_markdown(data)
                 if backtest_warning_md:
                     gr.Markdown(backtest_warning_md)
+                constraints = (
+                    data.metadata.constraints if data.metadata is not None else None
+                )
                 if data.backtest_metadata is not None:
-                    gr.Markdown(backtest_period_markdown(data.backtest_metadata))
-                    # Gray panels, narrower than Gradio's default minimum so
-                    # the three cards stay on one row on most screens.
-                    with gr.Row():
-                        for label, value in backtest_cards(
-                            data.backtest_metadata.max_sharpe
-                        ):
-                            with gr.Column(
-                                variant="panel",
-                                min_width=160,
-                                elem_classes=["backtest-card"],
-                            ):
-                                gr.Markdown(f"{label}\n\n{value}")
+                    for heading, metrics, card_class in backtest_card_rows(
+                        data.backtest_metadata,
+                        constraints_markdown(constraints, "Rebalance constraints"),
+                    ):
+                        gr.Markdown(heading)
+                        # Panels narrower than Gradio's default minimum, so
+                        # the three cards stay on one row on most screens.
+                        with gr.Row():
+                            for label, value in backtest_cards(metrics):
+                                with gr.Column(
+                                    variant="panel",
+                                    min_width=160,
+                                    elem_classes=["backtest-card", card_class],
+                                ):
+                                    gr.Markdown(f"{label}\n\n{value}")
+                    gr.Markdown(backtest_metrics_note_markdown(data.backtest_metadata))
                 else:
                     gr.Markdown(
                         f"**Back test results unavailable.** {data.backtest_metadata_error}"
@@ -2153,7 +2225,12 @@ class FSFinance:
                         f"**Back test plot unavailable.** {data.backtest_daily_error}"
                     )
 
-                gr.Markdown("## Latest Optimization")
+                latest_heading = "## Latest Optimization"
+                if data.metadata is not None:
+                    latest_heading += os.linesep + self.price_history_markdown(
+                        data.metadata
+                    )
+                gr.Markdown(latest_heading)
                 consistency_md = self.portfolio_consistency_markdown(data)
                 if consistency_md:
                     gr.Markdown(consistency_md)
@@ -2182,12 +2259,12 @@ class FSFinance:
                 with gr.Row():
                     if data.metadata is not None:
                         with gr.Column():
-                            gr.Markdown(self.price_history_markdown(data.metadata))
-                            constraints_md = constraints_markdown(
-                                data.metadata.constraints
-                            )
-                            if constraints_md:
+                            # Normally under the Max Sharpe Portfolio heading,
+                            # which dates without a back test do not have.
+                            constraints_md = constraints_markdown(constraints)
+                            if constraints_md and data.backtest_metadata is None:
                                 gr.Markdown(constraints_md)
+                            gr.Markdown("## Latest Optimization Weights")
                             weights_df = portfolio_weights_df(data.metadata)
                             # Read-only results. A plain row count (not
                             # Gradio's default tuple) avoids a deprecation
@@ -2197,13 +2274,9 @@ class FSFinance:
                                 row_count=len(weights_df),
                                 interactive=False,
                             )
-                        with gr.Column():
-                            gr.Markdown(
-                                self.optimization_metadata_markdown(data.metadata)
-                            )
                     else:
                         gr.Markdown(
-                            f"**Portfolio summary unavailable.** {data.metadata_error}"
+                            f"**Portfolio weights unavailable.** {data.metadata_error}"
                         )
 
                 # Collapsed like the Timeseries Analysis accordion, and styled
@@ -2313,8 +2386,20 @@ class FSFinance:
                 outputs=[metrics_md, metrics_summary_md, summary_panel],
             )
 
+        # The default theme, with its bundled Source Sans Pro replaced by IBM
+        # Plex Sans, also bundled with Gradio: in the old font, some bold
+        # capital A's looked smaller than the letters around them. The custom
+        # CSS above uses weight 700, so that weight is loaded too.
+        theme = gr.themes.Default(
+            font=(
+                gr.themes.LocalFont("IBM Plex Sans", weights=(400, 600, 700)),
+                "ui-sans-serif",
+                "system-ui",
+                "sans-serif",
+            )
+        )
         # HF Spaces logs "demo not found in __main__" (no top-level `demo`); harmless.
-        app.launch(css=css)
+        app.launch(css=css, theme=theme)
 
 
 if __name__ == "__main__":

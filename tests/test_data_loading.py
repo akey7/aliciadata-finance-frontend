@@ -838,12 +838,52 @@ def test_load_backtest_metadata(tmp_path):
     assert (m.trading_days, m.rebalance_interval_sessions) == (2, 2)
     assert (m.training_window_returns, m.rebalance_count) == (252, 1)
     assert m.fallback_count == 0
-    # The max Sharpe portfolio's metrics, not the baseline's.
     assert m.max_sharpe.cagr == 14.6
     assert m.max_sharpe.cumulative_return == 3.3
     assert m.max_sharpe.max_drawdown == -6.1
+    assert m.equal_weight.cagr == -20.0
+    assert m.equal_weight.cumulative_return == -0.2
+    assert m.equal_weight.max_drawdown == -0.2
     assert m.fallback_assumption == "rebalance to the previous target weights"
     assert m.final_optimization.point.risk == 12.44
+
+
+def v42_backtest_metadata() -> dict:
+    """
+    Return a portfolio_backtest_metadata.yml document with the contract v42
+    realized volatility of both portfolios.
+    """
+    document = v38_backtest_metadata()
+    document["metrics"]["max_sharpe"]["annualized_volatility"] = 11.5
+    document["metrics"]["equal_weight"]["annualized_volatility"] = 12.7
+    document["units"]["annualized_volatility"] = "percent_per_year"
+    return document
+
+
+def test_load_backtest_metadata_volatility(tmp_path):
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", v42_backtest_metadata()))
+    assert m.max_sharpe.annualized_volatility == 11.5
+    assert m.equal_weight.annualized_volatility == 12.7
+
+
+def test_load_backtest_metadata_before_v42_has_no_volatility(tmp_path):
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", v38_backtest_metadata()))
+    assert m.max_sharpe.annualized_volatility is None
+    assert m.equal_weight.annualized_volatility is None
+
+
+def test_load_backtest_metadata_ignores_bad_volatility(tmp_path):
+    wrong_units = v42_backtest_metadata()
+    wrong_units["units"]["annualized_volatility"] = "percent_per_day"
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", wrong_units))
+    assert m.max_sharpe.annualized_volatility is None
+    assert m.max_sharpe.cagr == 14.6
+
+    not_a_number = v42_backtest_metadata()
+    not_a_number["metrics"]["max_sharpe"]["annualized_volatility"] = "high"
+    m = load_backtest_metadata(write_yaml(tmp_path / "b2.yml", not_a_number))
+    assert m.max_sharpe.annualized_volatility is None
+    assert m.equal_weight.annualized_volatility == 12.7
 
 
 def test_load_backtest_metadata_before_v38(tmp_path):
