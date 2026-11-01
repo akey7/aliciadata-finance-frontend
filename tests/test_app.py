@@ -733,6 +733,20 @@ def test_backtest_cards_order_and_values():
     ]
 
 
+def test_backtest_volatility_card_is_last_and_unsigned():
+    metrics = BacktestMetrics(
+        cagr=10.84,
+        cumulative_return=47.3,
+        max_drawdown=-19.6,
+        annualized_volatility=12.74,
+    )
+    assert backtest_cards(metrics)[-1] == (
+        "Annualized Volatility (realized)",
+        "12.7%",
+    )
+    assert len(backtest_cards(metrics)) == 4
+
+
 def test_backtest_card_rows_show_max_sharpe_above_baseline():
     metadata = backtest_metadata()
     rows = backtest_card_rows(metadata)
@@ -807,6 +821,18 @@ def test_backtest_assumptions_fill_settings_from_the_file():
     # The disclaimer is shown once, at the bottom of the page.
     assert DISCLAIMER_MD not in text
     assert "investment advice" not in text.lower()
+
+
+def test_backtest_assumptions_explain_volatility_only_when_shown():
+    assert "Realized versus estimated" not in backtest_assumptions_markdown(
+        backtest_metadata()
+    )
+    metrics = BacktestMetrics(
+        cagr=1.0, cumulative_return=1.0, max_drawdown=-1.0, annualized_volatility=9.0
+    )
+    text = backtest_assumptions_markdown(backtest_metadata(max_sharpe=metrics))
+    assert "Realized versus estimated volatility" in text
+    assert "with only 61 returns" in text
 
 
 def test_backtest_assumptions_mention_fallback_only_when_used():

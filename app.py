@@ -797,7 +797,8 @@ def backtest_heading_markdown(metadata):
 def backtest_cards(metrics):
     """
     Return the label and value of each back test metric card. The metrics
-    come from the backend; nothing is computed here.
+    come from the backend; nothing is computed here. The realized volatility
+    card is last, on the right of the row, and only for contract v42+ dates.
 
     Parameters
     ----------
@@ -807,13 +808,22 @@ def backtest_cards(metrics):
     Returns
     -------
     list[tuple[str, str]]
-        (label, signed percentage), in display order.
+        (label, percentage), in display order. Returns and drawdowns are
+        signed; volatility has no direction, so it is not.
     """
-    return [
+    cards = [
         ("CAGR", signed_percent(metrics.cagr)),
         ("Cumulative Return", signed_percent(metrics.cumulative_return)),
         ("Max Drawdown", signed_percent(metrics.max_drawdown)),
     ]
+    if metrics.annualized_volatility is not None:
+        cards.append(
+            (
+                "Annualized Volatility (realized)",
+                f"{metrics.annualized_volatility:.1f}%",
+            )
+        )
+    return cards
 
 
 def backtest_card_rows(metadata, constraints_md=""):
@@ -943,6 +953,20 @@ def backtest_assumptions_markdown(metadata):
     n = m.trading_days
     r = m.rebalance_interval_sessions
     t = m.training_window_returns
+    volatility_note = []
+    if (
+        m.max_sharpe.annualized_volatility is not None
+        or m.equal_weight.annualized_volatility is not None
+    ):
+        # The volatility cards exist only for contract v42+ dates.
+        volatility_note = [
+            "- **Realized versus estimated volatility:** annualized volatility "
+            "(realized) is the sample standard deviation of the portfolio's daily "
+            "simple returns over the back test × √252, in percent. It is measured out "
+            "of sample, while the volatility plotted under Latest Optimization is an "
+            "in-sample estimate. Scaling by √252 assumes daily returns are serially "
+            f"uncorrelated, and with only {n} returns the value is itself noisy.",
+        ]
     lines = [
         "### Back testing",
         f"Growth of $1 over the last {n} trading days. Every {r} trading days, the "
@@ -964,6 +988,7 @@ def backtest_assumptions_markdown(metadata):
         "- **CAGR extrapolates:** it scales a short window to a full year, so a few "
         "good days give a large number. Prefer the cumulative return as the headline "
         "figure.",
+        *volatility_note,
         f"- **Small sample:** one window of {n} trading days cannot show that either "
         "portfolio is better. The difference is one noisy outcome, and the back test "
         f"has only {m.rebalance_count} independent decisions.",

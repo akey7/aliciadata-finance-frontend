@@ -1,7 +1,7 @@
 """
 Load and validate the files the backend delivers to the S3 buckets.
 
-Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 41)
+Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 42)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 41
+CONTRACT_VERSION = 42
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
@@ -52,6 +52,8 @@ EXPECTED_BACKTEST_UNITS = {
     "max_drawdown": "percent",
     "wealth": "usd",
 }
+# Units of the optional metrics.<portfolio>.annualized_volatility (contract v42).
+EXPECTED_BACKTEST_VOLATILITY_UNITS = "percent_per_year"
 PLOT_GROUPS = (
     "efficient_frontier",
     "tangency_line",
@@ -271,11 +273,15 @@ class BacktestMetrics:
     compounded (not the arithmetic annualized returns of
     optimization_metadata.yml), cumulative_return is the compounded total
     over the scored days, and max_drawdown is zero or negative.
+    annualized_volatility (contract v42, None for older files) is realized
+    over the scored days, unlike the in-sample `risk` fields of
+    optimization_metadata.yml.
     """
 
     cagr: float
     cumulative_return: float
     max_drawdown: float
+    annualized_volatility: float | None = None
 
 
 @dataclass(frozen=True)
@@ -1343,6 +1349,42 @@ def _parse_final_optimization(document: dict) -> FinalOptimization:
     )
 
 
+def _parse_backtest_volatility(document: dict, portfolio: str) -> float | None:
+    """
+    Read one portfolio's optional realized volatility (contract v42) from
+    portfolio_backtest_metadata.yml. It is None when absent (older files)
+    and, if malformed or not declared in the expected units, ignored with a
+    console message so the rest of the file can still be shown.
+
+    Parameters
+    ----------
+    document : dict
+        Parsed portfolio_backtest_metadata.yml, with its `units` mapping and
+        the portfolio's `metrics` mapping already validated.
+
+    portfolio : str
+        `max_sharpe` or `equal_weight`.
+
+    Returns
+    -------
+    float | None
+        Annualized volatility in percent, or None.
+    """
+    key = BACKTEST_METADATA_KEY
+    path = f"metrics.{portfolio}.annualized_volatility"
+    if "annualized_volatility" not in document["metrics"][portfolio]:
+        return None
+    units = document["units"].get("annualized_volatility")
+    if units != EXPECTED_BACKTEST_VOLATILITY_UNITS:
+        print(f"Ignoring `{path}` in `{key}`: declared in `{units}`.")
+        return None
+    try:
+        return _get_float(document, path, key)
+    except DataLoadError as error:
+        print(f"Ignoring optional key `{path}`: {error}")
+        return None
+
+
 def _parse_backtest_metrics(document: dict, portfolio: str) -> BacktestMetrics:
     """
     Read one portfolio's results from portfolio_backtest_metadata.yml.
@@ -1367,6 +1409,7 @@ def _parse_backtest_metrics(document: dict, portfolio: str) -> BacktestMetrics:
             document, f"metrics.{portfolio}.cumulative_return", key
         ),
         max_drawdown=_get_float(document, f"metrics.{portfolio}.max_drawdown", key),
+        annualized_volatility=_parse_backtest_volatility(document, portfolio),
     )
 
 

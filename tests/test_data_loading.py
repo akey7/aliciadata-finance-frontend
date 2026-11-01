@@ -848,6 +848,44 @@ def test_load_backtest_metadata(tmp_path):
     assert m.final_optimization.point.risk == 12.44
 
 
+def v42_backtest_metadata() -> dict:
+    """
+    Return a portfolio_backtest_metadata.yml document with the contract v42
+    realized volatility of both portfolios.
+    """
+    document = v38_backtest_metadata()
+    document["metrics"]["max_sharpe"]["annualized_volatility"] = 11.5
+    document["metrics"]["equal_weight"]["annualized_volatility"] = 12.7
+    document["units"]["annualized_volatility"] = "percent_per_year"
+    return document
+
+
+def test_load_backtest_metadata_volatility(tmp_path):
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", v42_backtest_metadata()))
+    assert m.max_sharpe.annualized_volatility == 11.5
+    assert m.equal_weight.annualized_volatility == 12.7
+
+
+def test_load_backtest_metadata_before_v42_has_no_volatility(tmp_path):
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", v38_backtest_metadata()))
+    assert m.max_sharpe.annualized_volatility is None
+    assert m.equal_weight.annualized_volatility is None
+
+
+def test_load_backtest_metadata_ignores_bad_volatility(tmp_path):
+    wrong_units = v42_backtest_metadata()
+    wrong_units["units"]["annualized_volatility"] = "percent_per_day"
+    m = load_backtest_metadata(write_yaml(tmp_path / "b.yml", wrong_units))
+    assert m.max_sharpe.annualized_volatility is None
+    assert m.max_sharpe.cagr == 14.6
+
+    not_a_number = v42_backtest_metadata()
+    not_a_number["metrics"]["max_sharpe"]["annualized_volatility"] = "high"
+    m = load_backtest_metadata(write_yaml(tmp_path / "b2.yml", not_a_number))
+    assert m.max_sharpe.annualized_volatility is None
+    assert m.equal_weight.annualized_volatility == 12.7
+
+
 def test_load_backtest_metadata_before_v38(tmp_path):
     document = v38_backtest_metadata()
     del document["final_optimization"]
