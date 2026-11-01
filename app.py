@@ -937,8 +937,8 @@ def backtest_assumptions_markdown(metadata):
         "percent. CAGR is the compound annual growth rate, in percent. Max drawdown is "
         "the largest peak-to-trough decline of the portfolio's value, in percent.",
         "- **CAGR and annualized return are different quantities:** CAGR is compounded "
-        "and realized over the back test, while the annualized returns under Latest "
-        "Optimization are arithmetic, in-sample estimates.",
+        "and realized over the back test, while the annualized returns plotted under "
+        "Latest Optimization are arithmetic, in-sample estimates.",
         "- **CAGR extrapolates:** it scales a short window to a full year, so a few "
         "good days give a large number. Prefer the cumulative return as the headline "
         "figure.",
@@ -1644,52 +1644,6 @@ class FSFinance:
             f"to {metadata.date_to}"
         )
 
-    def optimization_metadata_markdown(self, metadata):
-        """
-        Generate markdown of optimization metadata: annualized
-        performance of the maximum Sharpe ratio and minimum variance
-        portfolios, and of the maximum return portfolio for contract v32+
-        dates, and how returns are computed. The price history window
-        is shown above the weights table (price_history_markdown) and the
-        assumptions in an accordion below it
-        (optimization_assumptions_markdown).
-
-        Parameters
-        ----------
-        metadata : OptimizationMetadata
-            Loaded optimization metadata.
-
-        Returns
-        -------
-        str
-            String of markdown
-        """
-        m = metadata
-        lines = [
-            "### Maximum Sharpe ratio portfolio",
-            f"- Annualized return: {m.optimum.annualized_return:.2f}%",
-            f"- Annualized volatility (σ): {m.optimum.risk:.2f}%",
-            f"- Annualized Sharpe ratio: {m.sharpe_ratio:.2f}",
-            "### Minimum variance portfolio",
-            f"- Annualized return: {m.min_var.annualized_return:.2f}%",
-            f"- Annualized volatility (σ): {m.min_var.risk:.2f}%",
-        ]
-        if m.max_return is not None:
-            # Contract v32: the top of the efficient frontier. The file has
-            # no Sharpe ratio for it, and none is computed here.
-            lines += [
-                "### Maximum return portfolio",
-                f"- Annualized return: {m.max_return.point.annualized_return:.2f}%",
-                f"- Annualized volatility (σ): {m.max_return.point.risk:.2f}%",
-            ]
-        lines += [
-            "### Returns",
-            "- Simple (not log) daily returns, annualized arithmetically: "
-            f"mean daily return × {m.periods_per_year} and daily σ × √{m.periods_per_year}. "
-            "This is not the compounded growth an investor would realize.",
-        ]
-        return os.linesep.join(lines)
-
     def optimization_assumptions_markdown(self, metadata, show_random_sampling):
         """
         Generate the bullet list of assumptions behind the portfolio
@@ -1720,7 +1674,6 @@ class FSFinance:
             "noisy and sensitive to the dates chosen.",
             f"- **Risk-free rate:** {m.risk_free_rate:.2f}% per year, the 3-month U.S. "
             f"Treasury bill rate (FRED series DTB3) observed {m.risk_free_rate_date}.",
-            "- **Sharpe ratio:** (annualized return − risk-free rate) / annualized volatility.",
             "- **Weights** are in percent and rounded, so they may not sum to exactly 100%.",
         ]
         if m.min_var_weights is not None:
@@ -2231,13 +2184,9 @@ class FSFinance:
                                 row_count=len(weights_df),
                                 interactive=False,
                             )
-                        with gr.Column():
-                            gr.Markdown(
-                                self.optimization_metadata_markdown(data.metadata)
-                            )
                     else:
                         gr.Markdown(
-                            f"**Portfolio summary unavailable.** {data.metadata_error}"
+                            f"**Portfolio weights unavailable.** {data.metadata_error}"
                         )
 
                 # Collapsed like the Timeseries Analysis accordion, and styled
