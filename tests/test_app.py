@@ -49,6 +49,7 @@ from app import (
     DISCLAIMER_MD,
     DateData,
     backtest_assumptions_markdown,
+    backtest_card_rows,
     backtest_cards,
     backtest_growth_df,
     backtest_heading_markdown,
@@ -652,6 +653,9 @@ def backtest_metadata(**overrides):
         max_sharpe=BacktestMetrics(
             cagr=10.84, cumulative_return=47.3, max_drawdown=-19.6
         ),
+        equal_weight=BacktestMetrics(
+            cagr=-2.5, cumulative_return=-0.6, max_drawdown=-4.8
+        ),
     )
     return BacktestMetadata(**{**values, **overrides})
 
@@ -718,6 +722,14 @@ def test_backtest_cards_order_and_values():
         ("CAGR", "+10.8%"),
         ("Cumulative Return", "+47.3%"),
         ("Max Drawdown", "−19.6%"),
+    ]
+
+
+def test_backtest_card_rows_show_max_sharpe_above_baseline():
+    metadata = backtest_metadata()
+    assert backtest_card_rows(metadata) == [
+        ("### Max Sharpe Portfolio", metadata.max_sharpe, "max-sharpe-card"),
+        ("### Equal-Weight Baseline Portfolio", metadata.equal_weight, "baseline-card"),
     ]
 
 

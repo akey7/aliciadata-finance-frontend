@@ -838,10 +838,12 @@ def test_load_backtest_metadata(tmp_path):
     assert (m.trading_days, m.rebalance_interval_sessions) == (2, 2)
     assert (m.training_window_returns, m.rebalance_count) == (252, 1)
     assert m.fallback_count == 0
-    # The max Sharpe portfolio's metrics, not the baseline's.
     assert m.max_sharpe.cagr == 14.6
     assert m.max_sharpe.cumulative_return == 3.3
     assert m.max_sharpe.max_drawdown == -6.1
+    assert m.equal_weight.cagr == -20.0
+    assert m.equal_weight.cumulative_return == -0.2
+    assert m.equal_weight.max_drawdown == -0.2
     assert m.fallback_assumption == "rebalance to the previous target weights"
     assert m.final_optimization.point.risk == 12.44
 

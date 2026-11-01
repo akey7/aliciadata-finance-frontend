@@ -120,15 +120,18 @@ BACKTEST_DATE_COLUMN = "Date"
 BACKTEST_VALUE_COLUMN = "Value of $1 ($)"
 BACKTEST_SERIES = {
     BACKTEST_MAX_SHARPE_WEALTH: "Max Sharpe portfolio",
-    BACKTEST_EQUAL_WEIGHT_WEALTH: "Equal-weight baseline",
+    BACKTEST_EQUAL_WEIGHT_WEALTH: "Equal-weight baseline portfolio",
 }
 BACKTEST_COLORS = {
     BACKTEST_SERIES[BACKTEST_MAX_SHARPE_WEALTH]: ACTUAL_COLOR,
     BACKTEST_SERIES[BACKTEST_EQUAL_WEIGHT_WEALTH]: NAIVE_COLOR,
 }
-# Slightly lighter than the max Sharpe line (ACTUAL_COLOR), and still dark
-# enough for the cards' small white labels (contrast above 4.5:1).
+# The max Sharpe line's blue. White text has the better contrast on it:
+# about 5.2:1.
 BACKTEST_CARD_COLOR = "#0072B2"
+# A lighter version of the baseline line's gray (NAIVE_COLOR), so its black
+# text stands out: about 13:1 contrast.
+BACKTEST_BASELINE_CARD_COLOR = "#CCCCCC"
 
 
 @dataclass(frozen=True)
@@ -802,6 +805,27 @@ def backtest_cards(metrics):
         ("CAGR", signed_percent(metrics.cagr)),
         ("Cumulative Return", signed_percent(metrics.cumulative_return)),
         ("Max Drawdown", signed_percent(metrics.max_drawdown)),
+    ]
+
+
+def backtest_card_rows(metadata):
+    """
+    Return what each row of back test metric cards shows, in display order.
+
+    Parameters
+    ----------
+    metadata : BacktestMetadata
+        Loaded back test metadata.
+
+    Returns
+    -------
+    list[tuple[str, BacktestMetrics, str]]
+        For each portfolio: its `###` heading, its metrics, and the CSS
+        class that sets its cards' colors.
+    """
+    return [
+        ("### Max Sharpe Portfolio", metadata.max_sharpe, "max-sharpe-card"),
+        ("### Equal-Weight Baseline Portfolio", metadata.equal_weight, "baseline-card"),
     ]
 
 
@@ -1996,8 +2020,8 @@ class FSFinance:
         # show the date-selection title at the size of the "#" section
         # headings without making it a heading (those stay the only
         # top-level headings), make the accordions' labels bold (its size
-        # stays the default), and give the back test cards a blue background
-        # with white text and a large value (the last line, under its label).
+        # stays the default), and give the back test cards a large value (the
+        # last line, under its label) and each portfolio's colors.
         css = """
         .metrics-table table { width: 100% !important; }
         .date-title p {
@@ -2007,17 +2031,17 @@ class FSFinance:
         .methods-accordion .label-wrap > span:first-child {
             font-weight: 700 !important;
         }
-        .backtest-card p {
-            margin: 0 !important;
-            color: white !important;
-        }
+        .backtest-card p { margin: 0 !important; }
         .backtest-card p:last-child {
             font-size: var(--text-xxl) !important;
             font-weight: 700 !important;
         }
         """
         css += f"""
-        .backtest-card {{ background: {BACKTEST_CARD_COLOR} !important; }}
+        .max-sharpe-card {{ background: {BACKTEST_CARD_COLOR} !important; }}
+        .max-sharpe-card p {{ color: white !important; }}
+        .baseline-card {{ background: {BACKTEST_BASELINE_CARD_COLOR} !important; }}
+        .baseline-card p {{ color: black !important; }}
         """
         # Gradio 6 takes custom CSS in launch(), not in the Blocks constructor.
         with gr.Blocks() as app:
@@ -2138,19 +2162,20 @@ class FSFinance:
                 if backtest_warning_md:
                     gr.Markdown(backtest_warning_md)
                 if data.backtest_metadata is not None:
-                    gr.Markdown("### Max Sharpe Portfolio")
-                    # Panels narrower than Gradio's default minimum, so the
-                    # three cards stay on one row on most screens.
-                    with gr.Row():
-                        for label, value in backtest_cards(
-                            data.backtest_metadata.max_sharpe
-                        ):
-                            with gr.Column(
-                                variant="panel",
-                                min_width=160,
-                                elem_classes=["backtest-card"],
-                            ):
-                                gr.Markdown(f"{label}\n\n{value}")
+                    for heading, metrics, card_class in backtest_card_rows(
+                        data.backtest_metadata
+                    ):
+                        gr.Markdown(heading)
+                        # Panels narrower than Gradio's default minimum, so
+                        # the three cards stay on one row on most screens.
+                        with gr.Row():
+                            for label, value in backtest_cards(metrics):
+                                with gr.Column(
+                                    variant="panel",
+                                    min_width=160,
+                                    elem_classes=["backtest-card", card_class],
+                                ):
+                                    gr.Markdown(f"{label}\n\n{value}")
                 else:
                     gr.Markdown(
                         f"**Back test results unavailable.** {data.backtest_metadata_error}"

@@ -311,6 +311,7 @@ class BacktestMetadata:
     rebalance_count: int
     fallback_count: int
     max_sharpe: BacktestMetrics
+    equal_weight: BacktestMetrics
     fallback_assumption: str | None = None
     final_optimization: FinalOptimization | None = None
 
@@ -1342,6 +1343,33 @@ def _parse_final_optimization(document: dict) -> FinalOptimization:
     )
 
 
+def _parse_backtest_metrics(document: dict, portfolio: str) -> BacktestMetrics:
+    """
+    Read one portfolio's results from portfolio_backtest_metadata.yml.
+
+    Parameters
+    ----------
+    document : dict
+        Parsed portfolio_backtest_metadata.yml.
+
+    portfolio : str
+        `max_sharpe` or `equal_weight`.
+
+    Returns
+    -------
+    BacktestMetrics
+        The portfolio's results, in percent.
+    """
+    key = BACKTEST_METADATA_KEY
+    return BacktestMetrics(
+        cagr=_get_float(document, f"metrics.{portfolio}.cagr", key),
+        cumulative_return=_get_float(
+            document, f"metrics.{portfolio}.cumulative_return", key
+        ),
+        max_drawdown=_get_float(document, f"metrics.{portfolio}.max_drawdown", key),
+    )
+
+
 def load_backtest_metadata(path: str) -> BacktestMetadata:
     """
     Load and validate portfolio_backtest_metadata.yml (contract v36).
@@ -1388,13 +1416,8 @@ def load_backtest_metadata(path: str) -> BacktestMetadata:
         ),
         rebalance_count=int(_get_float(document, "schedule.rebalance_count", key)),
         fallback_count=int(_get_float(document, "schedule.fallback_count", key)),
-        max_sharpe=BacktestMetrics(
-            cagr=_get_float(document, "metrics.max_sharpe.cagr", key),
-            cumulative_return=_get_float(
-                document, "metrics.max_sharpe.cumulative_return", key
-            ),
-            max_drawdown=_get_float(document, "metrics.max_sharpe.max_drawdown", key),
-        ),
+        max_sharpe=_parse_backtest_metrics(document, "max_sharpe"),
+        equal_weight=_parse_backtest_metrics(document, "equal_weight"),
         fallback_assumption=_optional_str(document.get("assumptions"), "fallback"),
         final_optimization=_optional_section(
             document, "final_optimization", _parse_final_optimization
