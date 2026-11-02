@@ -35,10 +35,10 @@ The backend does all the modeling and publishes its results; this app only lists
    │
    └─ 3. DISPLAY   per visitor (selected date and ticker in Gradio state)
           date selector              date dropdown; individual assets accordion
-          # Timeseries Analysis      actual, ARIMA, and naive; backend metrics
           # Portfolio Optimization
             ## Historical Performance Back Test   metric cards, growth of $1
             ## Latest Optimization                frontier, random portfolios, weights
+          # Timeseries Analysis      actual, ARIMA, and naive; backend metrics
           disclaimer, once at the bottom
             │
             ▼
@@ -47,7 +47,7 @@ The backend does all the modeling and publishes its results; this app only lists
 
 The files the backend delivers, and how the app must read them, are specified in the [Interface Contract](INTERFACE_CONTRACT.md). That file is a read-only mirror of the copy in the backend repo. The app requires contract v4 or later data; older files are reported on the dashboard instead of being displayed.
 
-All data lives in one DigitalOcean Space (one S3 bucket) with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and the page's two stacked sections, **Timeseries Analysis** (top) and **Portfolio Optimization** (below), show data from the selected date only. The Portfolio Optimization section has two parts, **Historical Performance Back Test** and **Latest Optimization**; dates before contract v36 have no back test files and show a message in place of the first. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the Space as well as to read objects.
+All data lives in one DigitalOcean Space (one S3 bucket) with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and the page's two stacked sections, **Portfolio Optimization** (top) and **Timeseries Analysis** (below), show data from the selected date only. The Portfolio Optimization section has two parts, **Historical Performance Back Test** and **Latest Optimization**; dates before contract v36 have no back test files and show a message in place of the first. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the Space as well as to read objects.
 
 ## Installation
 
