@@ -850,7 +850,7 @@ def backtest_metrics_note_markdown(metadata):
         metadata.max_sharpe.annualized_volatility is not None
         or metadata.equal_weight.annualized_volatility is not None
     ):
-        directions += "; annualized realized volatility: lower is better"
+        directions += "; annualized volatility (realized): lower is better"
     return (
         f"***Calculated from {metadata.trading_days} out-of-sample daily portfolio "
         f"returns.*** *{directions}.*"
