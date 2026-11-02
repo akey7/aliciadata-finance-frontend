@@ -2037,9 +2037,8 @@ class FSFinance:
         Run the Gradio app.
 
         The page is a single column: the date dropdown and the individual
-        assets accordion, then the Timeseries
-        Analysis section, then the Portfolio Optimization section, each under
-        a `#` heading. The Portfolio Optimization section stacks two parts
+        assets accordion, then the Portfolio Optimization section, then the
+        Timeseries Analysis section, each under a `#` heading. The Portfolio Optimization section stacks two parts
         under `##` headings: Historical Performance Back Test, then Latest
         Optimization. On every page load the available dates are listed and
         the newest is selected. Changing the date reloads both sections from
@@ -2125,57 +2124,9 @@ class FSFinance:
                         interactive=False,
                     )
 
-            # Both sections are stacked on one page: Timeseries Analysis on
-            # top, Portfolio Optimization below. Inner headings start at ##
-            # so these # section headings stay the most prominent.
-            gr.Markdown("# Timeseries Analysis")
-            # Empty unless the forecasts cannot be loaded. The date is not
-            # repeated here; the date dropdown at the top shows it.
-            timeseries_status_md = gr.Markdown("")
-            # The ticker, the accuracy table, and a gray panel with the
-            # ARIMA-vs-naive summary (left third) beside the plot (right two
-            # thirds); then the full-width accordion explaining how to read
-            # the metrics and how the forecasts are made, and a horizontal
-            # rule.
-            with gr.Row():
-                with gr.Column(scale=1):
-                    ticker_dropdown = gr.Dropdown(
-                        choices=[],
-                        value=None,
-                        label="Ticker",
-                        visible=False,
-                    )
-                    metrics_md = gr.Markdown("", elem_classes=["metrics-table"])
-                    # Hidden when there is no summary (no metrics for this
-                    # date or ticker), so no empty gray panel shows.
-                    with gr.Column(variant="panel", visible=False) as summary_panel:
-                        metrics_summary_md = gr.Markdown("")
-
-                with gr.Column(scale=2):
-
-                    @gr.render(
-                        inputs=[date_dropdown, marker_state, ticker_dropdown],
-                        triggers=[date_dropdown.change, ticker_dropdown.change],
-                    )
-                    def render_timeseries_plot(date, markers, ticker):
-                        data = self.selected_data(date, markers)
-                        if data is None or data.forecasts is None:
-                            return
-                        ticker = self.resolve_ticker(data.forecasts, ticker)
-                        self.timeseries_plot(data.forecasts, ticker)
-
-            # The metrics and methods text is collapsed by default so it does
-            # not push the Portfolio Optimization section far down the page.
-            with gr.Accordion(
-                "Reading the accuracy metrics, walk-forward ARIMA, naive "
-                "forecasting, and out-of-sample evaluation...",
-                open=False,
-                visible=False,
-                elem_classes=["methods-accordion"],
-            ) as methods_accordion:
-                timeseries_intro_md = gr.Markdown("")
-            gr.Markdown("---")
-
+            # Both sections are stacked on one page: Portfolio Optimization on
+            # top, Timeseries Analysis below. Inner headings start at ## so
+            # these # section headings stay the most prominent.
             gr.Markdown("# Portfolio Optimization")
 
             @gr.render(
@@ -2307,6 +2258,54 @@ class FSFinance:
                     ):
                         # A blank line ends a bullet list before the next part.
                         gr.Markdown((os.linesep * 2).join(assumptions))
+
+            gr.Markdown("---")
+
+            gr.Markdown("# Timeseries Analysis")
+            # Empty unless the forecasts cannot be loaded. The date is not
+            # repeated here; the date dropdown at the top shows it.
+            timeseries_status_md = gr.Markdown("")
+            # The ticker, the accuracy table, and a gray panel with the
+            # ARIMA-vs-naive summary (left third) beside the plot (right two
+            # thirds); then the full-width accordion explaining how to read
+            # the metrics and how the forecasts are made.
+            with gr.Row():
+                with gr.Column(scale=1):
+                    ticker_dropdown = gr.Dropdown(
+                        choices=[],
+                        value=None,
+                        label="Ticker",
+                        visible=False,
+                    )
+                    metrics_md = gr.Markdown("", elem_classes=["metrics-table"])
+                    # Hidden when there is no summary (no metrics for this
+                    # date or ticker), so no empty gray panel shows.
+                    with gr.Column(variant="panel", visible=False) as summary_panel:
+                        metrics_summary_md = gr.Markdown("")
+
+                with gr.Column(scale=2):
+
+                    @gr.render(
+                        inputs=[date_dropdown, marker_state, ticker_dropdown],
+                        triggers=[date_dropdown.change, ticker_dropdown.change],
+                    )
+                    def render_timeseries_plot(date, markers, ticker):
+                        data = self.selected_data(date, markers)
+                        if data is None or data.forecasts is None:
+                            return
+                        ticker = self.resolve_ticker(data.forecasts, ticker)
+                        self.timeseries_plot(data.forecasts, ticker)
+
+            # The metrics and methods text is collapsed by default, like the
+            # portfolio assumptions accordion.
+            with gr.Accordion(
+                "Reading the accuracy metrics, walk-forward ARIMA, naive "
+                "forecasting, and out-of-sample evaluation...",
+                open=False,
+                visible=False,
+                elem_classes=["methods-accordion"],
+            ) as methods_accordion:
+                timeseries_intro_md = gr.Markdown("")
 
             gr.Markdown(
                 f"Data format: interface contract v{CONTRACT_VERSION}. "
