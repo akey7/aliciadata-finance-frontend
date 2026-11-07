@@ -7,7 +7,7 @@ The backend does all the modeling and publishes its results; this app only lists
 ```
  legend: [external]   module.py   ─► data flow
 
- [fuzzy-system-research]   backend repo; uploads one date folder per run
+ [aliciadata-finance-backend]   backend repo; uploads one date folder per run
             │
             ▼
  [DigitalOcean Space]   one bucket (FSF_FRONT_END_BUCKET_NAME), two folders
@@ -144,7 +144,7 @@ Dev and production share the one Space and differ only in the two folder names, 
 
 | Filename           | Standalone Execution? | Purpose                                                                                  |
 | ------------------ | --------------------- | ---------------------------------------------------------------------------------------- |
-| `app.py`           | Yes                   | Run the Fuzzy System Finance Gradio app.                                                 |
+| `app.py`           | Yes                   | Run the AliciaData Finance Frontend Gradio app.                                          |
 | `s3_downloader.py` | No                    | Lists folders in the Space and downloads data from it for display on the app.            |
 | `data_loading.py`  | No                    | Finds available dates and loads and validates the downloaded files against the [Interface Contract](INTERFACE_CONTRACT.md). |
 

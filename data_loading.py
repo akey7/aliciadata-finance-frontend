@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 42
+CONTRACT_VERSION = 44
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"

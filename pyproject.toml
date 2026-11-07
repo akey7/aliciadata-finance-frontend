@@ -1,5 +1,5 @@
 [project]
-name = "fuzzy-system-finance"
+name = "aliciadata-finance-frontend"
 version = "0.1.0"
 description = "Gradio frontend for portfolio optimization and ARIMA time series results."
 # Keep in sync with .python-version and `python_version` in the README frontmatter.

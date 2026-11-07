@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in the `fuzzy-system-finance` repo.
+Guidance for Claude Code working in the `aliciadata-finance-frontend` repo.
 
 ## HARD RESTRICTIONS (read first)
 
@@ -38,7 +38,7 @@ This is a hobby project being revised. Planned work spans technical implementati
 
 The file above is the authoritative spec of what the backend uploads to the S3 buckets and this frontend reads: bucket keys, file formats, YAML keys, HDF5 groups/datasets/attributes, CSV columns, units, annualization, date formats, and the reader requirements this app must meet. When the contract and the existing frontend code disagree, the contract wins; treat the disagreement as a frontend bug to fix (or flag to the human), not as evidence of the real data format.
 
-- **Read-only mirror here.** The backend repo (`fuzzy-system-research`) holds the source of truth, and the copy in this repo (`docs/INTERFACE_CONTRACT.md`) must stay byte-for-byte identical to it. Do not edit `docs/INTERFACE_CONTRACT.md` in this repo. If a contract change is needed, draft the proposed change (including the version bump and changelog entry) in your response for the human to apply in the backend repo first and then copy here.
+- **Read-only mirror here.** The backend repo (`aliciadata-finance-backend`) holds the source of truth, and the copy in this repo (`docs/INTERFACE_CONTRACT.md`) must stay byte-for-byte identical to it. Do not edit `docs/INTERFACE_CONTRACT.md` in this repo. If a contract change is needed, draft the proposed change (including the version bump and changelog entry) in your response for the human to apply in the backend repo first and then copy here.
 - **Build to the contract, not to samples.** Write parsing and display code against the documented schema and the "Reader requirements" section (ignore unknown keys/columns, do not hardcode tickers or array lengths, handle `NaN` and empty cells, show data dates, fail soft, label units). Files in `input/` are useful for checking behavior but are a single snapshot, not the spec.
 - **Check the version.** Note the contract version you are working against in your summary. When the contract changelog marks a change as breaking, review the frontend impact it lists and make sure the app handles it (including detecting older files where the contract describes how).
 - **Be precise with finance labels.** Use the contract's units and terminology in user-facing text (e.g., "annualized (arithmetic)", percent vs. dollars, daily vs. annualized) and show the contract's "not investment advice" disclaimer verbatim **exactly once, at the bottom of the page** (`DISCLAIMER_MD` in `app.py`). Do not repeat it in section text, plot captions, tooltips, or metric descriptions.
