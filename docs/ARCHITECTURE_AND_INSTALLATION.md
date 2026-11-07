@@ -10,7 +10,7 @@ The backend does all the modeling and publishes its results; this app only lists
  [aliciadata-finance-backend]   backend repo; uploads one date folder per run
             │
             ▼
- [DigitalOcean Space]   one bucket (FSF_FRONT_END_BUCKET_NAME), two folders
+ [DigitalOcean Space]   one bucket (S3_BUCKET_NAME), two folders
    <portfolio optimization folder>/YYYY-MM-DD/
        optimization_metadata.yml             marker: the date is complete
        portfolio_optimization_plot_data.h5
@@ -120,17 +120,21 @@ Development is on macOS while Hugging Face runs Debian Linux, so the environment
 
 On the production deployment on Hugging Face Spaces, these environment variables are held by the secrets manager. On a development environment, these are managed in a `.env` file **that should never be committed to GitHub or Hugging Face**.
 
-1. `FSF_FRONT_END_BUCKET_ENDPOINT`: the **region-only** endpoint, `https://<region>.digitaloceanspaces.com`. Do **not** use the Space-specific "origin endpoint" (`https://<space>.<region>.digitaloceanspaces.com`); with it, listing the available dates fails with `NoSuchKey`.
+1. `AWS_ENDPOINT_URL_S3`: the **region-only** endpoint, `https://<region>.digitaloceanspaces.com`. Do **not** use the Space-specific "origin endpoint" (`https://<space>.<region>.digitaloceanspaces.com`); with it, listing the available dates fails with `NoSuchKey`, so the app refuses an endpoint whose host starts with the Space name.
 
-2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: region and read-only access key for the Space.
+2. `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: region and read-only access key for the Space.
 
-3. `FSF_FRONT_END_BUCKET_NAME`: name of the DigitalOcean Space (the S3 bucket) that holds all the data.
+3. `S3_BUCKET_NAME`: name of the DigitalOcean Space (the S3 bucket) that holds all the data.
 
-4. `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`: the **top-level folder** inside the Space that holds the portfolio optimization files (e.g. `portfolio-optimization`).
+4. `S3_PORTFOLIO_OPTIMIZATION_FOLDER`: the **top-level folder** inside the Space that holds the portfolio optimization files (e.g. `portfolio-optimization`).
 
-5. `FSF_FRONT_END_TIME_SERIES_FOLDER`: the **top-level folder** inside the Space that holds the time series forecasts (e.g. `time-series`).
+5. `S3_TIME_SERIES_FOLDER`: the **top-level folder** inside the Space that holds the time series forecasts (e.g. `time-series`).
 
-Dev and production share the one Space and differ only in the two folder names, so these two variables select the environment. Use the same pair of values as the backend for the same environment. (Before contract v13 the folder variables were named `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`; the old names are no longer read.)
+The four `AWS_*` variables use boto3's standard names, like the backend, but they are this app's own settings, not part of the [Interface Contract](INTERFACE_CONTRACT.md). The app reads each one explicitly and passes it to boto3. If any is missing or empty, it does not connect: the log names every missing variable (never a value) and the page shows a message instead of data. boto3 therefore never falls back to other credentials (such as `~/.aws` or a profile) or to AWS's own endpoint. The app loads `.env` with `override=True`, so a local `.env` wins over AWS variables exported in your shell; keep all four in `.env`, because a variable missing from `.env` is still taken from the shell.
+
+Dev and production share the one Space and differ only in the two folder names, so these two variables select the environment. Use the same pair of values as the backend for the same environment.
+
+Older names are no longer read, with no fallback. Before contract v45 the three shared variables were `FSF_FRONT_END_BUCKET_NAME`, `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, and `FSF_FRONT_END_TIME_SERIES_FOLDER` (and before v13 the folder variables were `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`). The credentials were `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`, and `FSF_FRONT_END_BUCKET_READ_ONLY`.
 
 ## Purposes of folders and scripts
 

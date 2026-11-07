@@ -8,7 +8,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from botocore.exceptions import BotoCoreError
 from matplotlib.figure import Figure
-from s3_downloader import S3Downloader
+from s3_downloader import S3ConfigurationError, S3Downloader
 from data_loading import (
     ARIMA_SUFFIX,
     BACKTEST_DAILY_KEY,
@@ -45,9 +45,10 @@ from data_loading import (
 
 INPUT_FOLDER = "input"
 # One bucket (DigitalOcean Space) holds two top-level folders (see the contract).
-BUCKET_NAME_ENV = "FSF_FRONT_END_BUCKET_NAME"
-PORTFOLIO_FOLDER_ENV = "FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER"
-TIME_SERIES_FOLDER_ENV = "FSF_FRONT_END_TIME_SERIES_FOLDER"
+# Named as in contract v45; the pre-v45 FSF_FRONT_END_* names are not read.
+BUCKET_NAME_ENV = "S3_BUCKET_NAME"
+PORTFOLIO_FOLDER_ENV = "S3_PORTFOLIO_OPTIMIZATION_FOLDER"
+TIME_SERIES_FOLDER_ENV = "S3_TIME_SERIES_FOLDER"
 
 # The contract's disclaimer, verbatim. Shown exactly once, at the bottom of
 # the page; do not repeat it in captions, tooltips, or metric descriptions.
@@ -1296,15 +1297,23 @@ class FSFinance:
 
         Loaded dates are cached in memory, shared by all visitors. Nothing
         that depends on a visitor's selection is stored on this object.
+
+        A local `.env` file, if there is one, overrides variables already
+        set in the environment. If the S3 connection settings are missing
+        or invalid, the names of the variables at fault are logged (never
+        their values) and the page shows a message instead of data.
         """
-        load_dotenv()
+        load_dotenv(override=True)
         if not os.path.exists(INPUT_FOLDER):
             os.mkdir(INPUT_FOLDER)
             print(f"Folder '{INPUT_FOLDER}' created")
         else:
             print(f"Folder '{INPUT_FOLDER}' already exists")
         try:
-            self.downloader = S3Downloader()
+            self.downloader = S3Downloader(bucket_name=os.getenv(BUCKET_NAME_ENV))
+        except S3ConfigurationError as error:
+            print(f"Could not create the S3 client: {error}")
+            self.downloader = None
         except (BotoCoreError, ValueError) as error:
             print(f"Could not create the S3 client: {type(error).__name__}")
             self.downloader = None
