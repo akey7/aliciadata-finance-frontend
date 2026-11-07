@@ -758,7 +758,7 @@ def test_backtest_metrics_note_reads_the_number_of_returns_from_the_file():
     assert note == (
         "***Calculated from 60 out-of-sample daily portfolio returns.*** *CAGR and "
         "cumulative return: higher is better; maximum drawdown: closer to 0% is "
-        "better; annualized realized volatility: lower is better.*"
+        "better; annualized volatility (realized): lower is better.*"
     )
 
 

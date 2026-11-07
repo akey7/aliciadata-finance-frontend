@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 42
+CONTRACT_VERSION = 45
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
@@ -392,12 +392,11 @@ def available_dates(
     Parameters
     ----------
     portfolio_keys : Iterable[str]
-        Every key in the FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER folder, relative
-        to the folder.
+        Every key in the S3_PORTFOLIO_OPTIMIZATION_FOLDER folder, relative to
+        the folder.
 
     forecast_keys : Iterable[str]
-        Every key in the FSF_FRONT_END_TIME_SERIES_FOLDER folder, relative to the
-        folder.
+        Every key in the S3_TIME_SERIES_FOLDER folder, relative to the folder.
 
     Returns
     -------

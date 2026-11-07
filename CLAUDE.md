@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in the `fuzzy-system-finance` repo.
+Guidance for Claude Code working in the `aliciadata-finance-frontend` repo.
 
 ## HARD RESTRICTIONS (read first)
 
@@ -38,7 +38,7 @@ This is a hobby project being revised. Planned work spans technical implementati
 
 The file above is the authoritative spec of what the backend uploads to the S3 buckets and this frontend reads: bucket keys, file formats, YAML keys, HDF5 groups/datasets/attributes, CSV columns, units, annualization, date formats, and the reader requirements this app must meet. When the contract and the existing frontend code disagree, the contract wins; treat the disagreement as a frontend bug to fix (or flag to the human), not as evidence of the real data format.
 
-- **Read-only mirror here.** The backend repo (`fuzzy-system-research`) holds the source of truth, and the copy in this repo (`docs/INTERFACE_CONTRACT.md`) must stay byte-for-byte identical to it. Do not edit `docs/INTERFACE_CONTRACT.md` in this repo. If a contract change is needed, draft the proposed change (including the version bump and changelog entry) in your response for the human to apply in the backend repo first and then copy here.
+- **Read-only mirror here.** The backend repo (`aliciadata-finance-backend`) holds the source of truth, and the copy in this repo (`docs/INTERFACE_CONTRACT.md`) must stay byte-for-byte identical to it. Do not edit `docs/INTERFACE_CONTRACT.md` in this repo. If a contract change is needed, draft the proposed change (including the version bump and changelog entry) in your response for the human to apply in the backend repo first and then copy here.
 - **Build to the contract, not to samples.** Write parsing and display code against the documented schema and the "Reader requirements" section (ignore unknown keys/columns, do not hardcode tickers or array lengths, handle `NaN` and empty cells, show data dates, fail soft, label units). Files in `input/` are useful for checking behavior but are a single snapshot, not the spec.
 - **Check the version.** Note the contract version you are working against in your summary. When the contract changelog marks a change as breaking, review the frontend impact it lists and make sure the app handles it (including detecting older files where the contract describes how).
 - **Be precise with finance labels.** Use the contract's units and terminology in user-facing text (e.g., "annualized (arithmetic)", percent vs. dollars, daily vs. annualized) and show the contract's "not investment advice" disclaimer verbatim **exactly once, at the bottom of the page** (`DISCLAIMER_MD` in `app.py`). Do not repeat it in section text, plot captions, tooltips, or metric descriptions.
@@ -78,10 +78,11 @@ Docstrings throughout the Python modules describe current behavior; read them be
 - Gradio SDK version is pinned in the README frontmatter (`sdk_version`) and must stay consistent with the `gradio==` pin in `pyproject.toml` (and therefore in the exported `requirements.txt`). Treat bumping Gradio as a deliberate change: flag it to the human, note Gradio API differences that may affect the UI code, and update both places together.
 - The README frontmatter (`sdk`, `sdk_version`, `app_file`, etc.) controls the Hugging Face deployment. Edit it carefully and mention any change to it in your summary.
 - Environment variables (values live in `.env` locally and in the HF Spaces secrets manager in production):
-  - `FSF_FRONT_END_BUCKET_ENDPOINT`: the **region-only** endpoint (`https://<region>.digitaloceanspaces.com`), never the Space-specific one.
-  - `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: region and read-only access key.
-  - `FSF_FRONT_END_BUCKET_NAME`: the one DigitalOcean Space (S3 bucket) holding all data. Pass it as the S3 `Bucket`.
-  - `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, `FSF_FRONT_END_TIME_SERIES_FOLDER`: **top-level folder names** inside that Space, not buckets. Full keys are `<folder>/YYYY-MM-DD/<file>`; list with `Prefix="<folder>/"`. Dev and production share the one Space and differ only in these folder names. (Named `PORTFOLIO_OPTIMIZATION_SPACE_NAME` / `TIME_SERIES_SPACE_NAME` before contract v13; do not read the old names.)
+  - `AWS_ENDPOINT_URL_S3`: the **region-only** endpoint (`https://<region>.digitaloceanspaces.com`), never the Space-specific one (`s3_downloader.py` refuses an endpoint whose host starts with the bucket name).
+  - `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: region and read-only access key. These four use boto3's standard names but are this app's own configuration, not part of the contract. `s3_downloader.py` reads each one explicitly and passes it to boto3, and refuses to create a client if any is missing or empty (naming every missing variable), so boto3 never falls back to other credentials (`~/.aws`, a profile) or to AWS's own endpoint. Keep that behavior. `load_dotenv(override=True)` makes a local `.env` win over AWS variables exported in the shell.
+  - `S3_BUCKET_NAME`: the one DigitalOcean Space (S3 bucket) holding all data. Pass it as the S3 `Bucket`.
+  - `S3_PORTFOLIO_OPTIMIZATION_FOLDER`, `S3_TIME_SERIES_FOLDER`: **top-level folder names** inside that Space, not buckets. Full keys are `<folder>/YYYY-MM-DD/<file>`; list with `Prefix="<folder>/"`. Dev and production share the one Space and differ only in these folder names.
+  - Older names are not read, with no fallback: the three contract variables were `FSF_FRONT_END_BUCKET_NAME`, `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, and `FSF_FRONT_END_TIME_SERIES_FOLDER` before contract v45 (and the folders `PORTFOLIO_OPTIMIZATION_SPACE_NAME` / `TIME_SERIES_SPACE_NAME` before v13); the credentials were `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`, and `FSF_FRONT_END_BUCKET_READ_ONLY`.
 - Read configuration from environment variables only; never hardcode credentials, endpoints, or bucket or folder names.
 - The app is deployed to a public Space. Do not add code that logs, prints, or displays secrets, and do not add files that would expose them.
 
