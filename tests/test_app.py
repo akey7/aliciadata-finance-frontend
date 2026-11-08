@@ -43,6 +43,7 @@ from app import (
     standalone_random_sampling_markdown,
 )
 from app import (
+    APP_TITLE_MD,
     BACKTEST_COLORS,
     BACKTEST_UNPUBLISHED,
     BACKTEST_VALUE_COLUMN,
@@ -843,6 +844,10 @@ def test_backtest_assumptions_fill_settings_from_the_file():
     # The disclaimer is shown once, at the bottom of the page.
     assert DISCLAIMER_MD not in text
     assert "investment advice" not in text.lower()
+
+
+def test_app_title_is_a_top_level_heading():
+    assert APP_TITLE_MD == "# AliciaData Finance"
 
 
 def test_backtest_assumptions_explain_volatility_only_when_shown():

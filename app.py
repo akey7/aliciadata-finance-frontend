@@ -50,6 +50,10 @@ BUCKET_NAME_ENV = "S3_BUCKET_NAME"
 PORTFOLIO_FOLDER_ENV = "S3_PORTFOLIO_OPTIMIZATION_FOLDER"
 TIME_SERIES_FOLDER_ENV = "S3_TIME_SERIES_FOLDER"
 
+# The page title, at the top of the page: a "#" heading, like the section
+# headings.
+APP_TITLE_MD = "# AliciaData Finance"
+
 # The contract's disclaimer, verbatim. Shown exactly once, at the bottom of
 # the page; do not repeat it in captions, tooltips, or metric descriptions.
 DISCLAIMER_MD = (
@@ -2045,10 +2049,11 @@ class FSFinance:
         """
         Run the Gradio app.
 
-        The page is a single column: the date dropdown and the individual
+        The page is a single column: the page title (APP_TITLE_MD, a `#`
+        heading), the date dropdown and the individual
         assets accordion, then the Portfolio Optimization section, then the
-        Timeseries Analysis section, each under a `#` heading. The Portfolio Optimization section stacks two parts
-        under `##` headings: Historical Performance Back Test, then Latest
+        Timeseries Analysis section, each under a `#` heading. The Portfolio
+        Optimization section stacks two parts under `##` headings: Historical Performance Back Test, then Latest
         Optimization. On every page load the available dates are listed and
         the newest is selected. Changing the date reloads both sections from
         that date's folder; changing the ticker redraws the time series plot. Plots
@@ -2058,8 +2063,8 @@ class FSFinance:
         # Make the accuracy table fill its third of the row beside the plot
         # without breaking its column headers across lines, show the
         # date-selection title at the size of the "#" section
-        # headings without making it a heading (those stay the only
-        # top-level headings), make the accordions' labels bold (its size
+        # headings without making it a heading (the page title and the
+        # section headings stay the only top-level headings), make the accordions' labels bold (its size
         # stays the default), and give the back test cards a large value (the
         # last line, under its label) and each portfolio's colors.
         css = """
@@ -2088,6 +2093,7 @@ class FSFinance:
         with gr.Blocks() as app:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
+            gr.Markdown(APP_TITLE_MD)
             gr.Markdown(
                 "Trading day selection (default is most recent day) and individual "
                 "asset information",
