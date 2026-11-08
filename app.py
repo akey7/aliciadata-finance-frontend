@@ -50,9 +50,11 @@ BUCKET_NAME_ENV = "S3_BUCKET_NAME"
 PORTFOLIO_FOLDER_ENV = "S3_PORTFOLIO_OPTIMIZATION_FOLDER"
 TIME_SERIES_FOLDER_ENV = "S3_TIME_SERIES_FOLDER"
 
-# The page title, at the top of the page: a "#" heading, like the section
-# headings.
-APP_TITLE_MD = "# AliciaData Finance"
+# The dashboard's display name (see CLAUDE.md), used as the browser tab
+# title and, as a "#" heading like the section headings, at the top of the
+# page.
+APP_TITLE = "AliciaData Finance"
+APP_TITLE_MD = f"# {APP_TITLE}"
 
 # The contract's disclaimer, verbatim. Shown exactly once, at the bottom of
 # the page; do not repeat it in captions, tooltips, or metric descriptions.
@@ -2089,8 +2091,10 @@ class FSFinance:
         .baseline-card {{ background: {BACKTEST_BASELINE_CARD_COLOR} !important; }}
         .baseline-card p {{ color: black !important; }}
         """
-        # Gradio 6 takes custom CSS in launch(), not in the Blocks constructor.
-        with gr.Blocks() as app:
+        # Gradio 6 takes custom CSS in launch(), not in the Blocks constructor;
+        # the browser tab title stays in the constructor and is the display
+        # name (APP_TITLE).
+        with gr.Blocks(title=APP_TITLE) as app:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             gr.Markdown(APP_TITLE_MD)
@@ -2412,7 +2416,6 @@ class FSFinance:
                 "sans-serif",
             )
         )
-        # HF Spaces logs "demo not found in __main__" (no top-level `demo`); harmless.
         app.launch(css=css, theme=theme)
 
 

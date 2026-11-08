@@ -1,17 +1,3 @@
----
-title: AliciaData Finance Frontend
-emoji: 🏢
-colorFrom: pink
-colorTo: yellow
-sdk: gradio
-sdk_version: 6.30.0
-python_version: "3.13.5"
-app_file: app.py
-pinned: false
-license: mit
-short_description: Portfolio optimization and time series analysis app.
----
-
 # AliciaData Finance Frontend
 
 **Interactive visualization and interpretation of portfolio optimization and walk-forward financial time-series forecasts.**
@@ -29,7 +15,7 @@ This architecture supports a lightweight deployment while preserving analytical 
 
 ## Live Application
 
-**[Explore the interactive dashboard on Hugging Face Spaces](https://huggingface.co/spaces/akey7/fuzzy-system-finance)**
+**[Explore the interactive dashboard, AliciaData Finance](https://finance.aliciadata.com)**
 
 ## Documentation
 
