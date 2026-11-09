@@ -17,3 +17,9 @@ updates:
     ignore:
       # Gradio is pinned on purpose; bumping it is a deliberate change.
       - dependency-name: "gradio"
+    groups:
+      # One weekly pull request for all minor and patch updates. Major
+      # updates (such as pandas 2 to 3) still arrive one per pull request,
+      # so each can be checked on its own.
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
