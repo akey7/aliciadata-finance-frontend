@@ -738,8 +738,8 @@ def noon_timestamps(dates):
     keeps the calendar date the same in any viewer's time zone from UTC-11
     to UTC+11, whether the browser reads the timestamp as UTC or as local
     time, so no close moves to the neighboring day. The timestamps are
-    built from the date text rather than by adding a timedelta, which in
-    pandas 2.3 with NumPy 2.5 raises a deprecation warning.
+    built from the date text rather than by adding a timedelta, which with
+    some pandas and NumPy versions raises a deprecation warning.
 
     Parameters
     ----------
@@ -1659,8 +1659,7 @@ class FSFinance:
             select_df["pred_date"].dt.strftime("%Y-%m-%d").map(date_label)
         )
         select_df["pred_date"] = noon_timestamps(select_df["pred_date"])
-        select_df.rename(columns={"pred_date": "Date"}, inplace=True)
-        return select_df
+        return select_df.rename(columns={"pred_date": "Date"})
 
     def timeseries_plot(self, forecasts, ticker):
         """

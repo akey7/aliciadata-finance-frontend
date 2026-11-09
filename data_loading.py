@@ -996,7 +996,8 @@ def _clean_optional_column(df: pd.DataFrame, column: str, whole_numbers: bool) -
         malformed |= converted.notna() & (converted % 1 != 0)
     if malformed.any():
         print(f"Ignoring malformed optional column {column} in {FORECASTS_KEY}.")
-        df.drop(columns=column, inplace=True)
+        # In place (the caller's DataFrame); pandas 3.1 deprecates inplace=.
+        del df[column]
         return
     df[column] = converted.astype("Int64") if whole_numbers else converted.astype(float)
 
