@@ -15,7 +15,7 @@ This architecture supports a lightweight deployment while preserving analytical 
 
 ## Live Application
 
-**[Explore the interactive dashboard, AliciaData Finance](https://finance.aliciadata.com)**
+**[Explore the interactive dashboard, AliciaData Finance](https://aliciadata.com)**
 
 ## Documentation
 

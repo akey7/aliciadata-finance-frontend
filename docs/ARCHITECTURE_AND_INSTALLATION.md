@@ -107,6 +107,25 @@ These must be kept in agreement by hand:
 
 Development is on macOS while production runs in a Debian-based Linux container on an x86_64 Ubuntu VPS, so the environments match in Python and package versions but not in operating system or CPU architecture. One practical consequence: macOS file names are case-insensitive by default and Linux file names are case-sensitive, so keep file name casing exact in code.
 
+### Dependency updates
+
+[`.github/dependabot.yml`](../.github/dependabot.yml) has Dependabot open weekly pull requests for:
+
+- **GitHub Actions** used in `.github/workflows/`, updating the pinned commit SHA and its version comment.
+- **Python dependencies** in `uv.lock`. Minor and patch updates arrive together in one pull request; each major update (such as pandas 2 to 3) arrives in its own pull request so it can be checked separately. Gradio is ignored, because bumping it is a deliberate change.
+
+The Docker base image is not tracked, because its Python version must change together with `.python-version`.
+
+The tests workflow runs on every Dependabot pull request. To check one locally, check out its branch, then run:
+
+```
+uv sync --locked
+uv run pytest
+uv run python app.py
+```
+
+After merging, deploy in Dokploy as usual (see "Deployment"). If a Dependabot branch has been rebased since you last checked it out, replace your local copy with the one on GitHub instead of pulling.
+
 ### `.env` file and environment variables
 
 In production, these environment variables are set in the Dokploy application's environment settings (see "Deployment" below). On a development environment, they are managed in a `.env` file **that should never be committed to GitHub**; `.dockerignore` also keeps it out of the Docker image.
@@ -129,7 +148,7 @@ Older names are no longer read, with no fallback. Before contract v45 the three 
 
 ## Deployment
 
-The live dashboard, AliciaData Finance, is served at https://finance.aliciadata.com by a self-hosted [Dokploy](https://dokploy.com) instance on a VPS. Deployment is manual; GitHub Actions only runs the tests.
+The live dashboard, AliciaData Finance, is served at https://aliciadata.com by a self-hosted [Dokploy](https://dokploy.com) instance on a VPS. Deployment is manual; GitHub Actions only runs the tests.
 
 ```
  pull request to main ─► GitHub Actions: tests workflow (uv sync --locked, pytest)
@@ -138,8 +157,8 @@ The live dashboard, AliciaData Finance, is served at https://finance.aliciadata.
  click Deploy in Dokploy ─► Dokploy pulls main from GitHub
                             builds the Dockerfile on the VPS
                             replaces the running container (one replica)
- visitor ─► https://finance.aliciadata.com ─► Traefik (Let's Encrypt HTTPS)
-                                           ─► container, port 7860 ─► Gradio app
+ visitor ─► https://aliciadata.com ─► Traefik (Let's Encrypt HTTPS)
+                                   ─► container, port 7860 ─► Gradio app
 ```
 
 ### Docker image
@@ -154,14 +173,14 @@ The [`Dockerfile`](../Dockerfile) builds from `python:3.13.5-slim-bookworm`, cop
 
 - **Source:** Git, `https://github.com/akey7/aliciadata-finance-frontend.git`, branch `main`. Build type Dockerfile, path `Dockerfile`, context `.`. Automatic deployment is off.
 - **Environment:** the seven variables listed above, with the **production** folder names.
-- **Domain:** `finance.aliciadata.com`, path `/`, container port **7860**, HTTPS with Let's Encrypt. No ports are published directly.
+- **Domain:** `aliciadata.com`, path `/`, container port **7860**, HTTPS with Let's Encrypt. No ports are published directly.
 - **Replicas:** 1, because the in-memory cache and Gradio sessions are per process.
 
 ### Deploying and rolling back
 
 1. Merge a pull request into `main` after the tests workflow passes.
 2. In Dokploy, open the application and click **Deploy**. Follow the build in the deployment log.
-3. Check the application log for `Running on local URL: http://0.0.0.0:7860` and the absence of `Could not create the S3 client` or `Missing configuration`, then load https://finance.aliciadata.com.
+3. Check the application log for `Running on local URL: http://0.0.0.0:7860` and the absence of `Could not create the S3 client` or `Missing configuration`, then load https://aliciadata.com.
 
 There is no automatic rollback. To roll back, redeploy an earlier deployment from the application's deployment list in Dokploy, or revert the change on `main` and deploy again.
 
@@ -190,3 +209,4 @@ There is no automatic rollback. To roll back, redeploy an earlier deployment fro
 | `Dockerfile`                  | Builds the production image (see "Deployment").                                               |
 | `.dockerignore`               | Keeps secrets, local data, and development files out of the image build.                      |
 | `.github/workflows/tests.yml` | Runs the tests on pull requests to `main` and pushes to `main`. Does not deploy.              |
+| `.github/dependabot.yml`      | Weekly update pull requests for the GitHub Actions and the Python dependencies (see "Dependency updates"). |
