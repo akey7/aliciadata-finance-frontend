@@ -1,6 +1,5 @@
-# Container image for running the app outside Hugging Face Spaces (for
-# example on Dokploy). Dependencies come from uv.lock; requirements.txt is
-# not used here.
+# Container image for the production deployment, built by Dokploy on the VPS
+# (see docs/ARCHITECTURE_AND_INSTALLATION.md). Dependencies come from uv.lock.
 
 # Python pinned to the same patch version as .python-version.
 FROM python:3.13.5-slim-bookworm

@@ -34,6 +34,7 @@ The backend does all the modeling and publishes its results; this app only lists
    │      in-memory cache shared by all visitors, keyed by date + ETags
    │
    └─ 3. DISPLAY   per visitor (selected date and ticker in Gradio state)
+          # AliciaData Finance       page title (the display name)
           date selector              date dropdown; individual assets accordion
           # Portfolio Optimization
             ## Historical Performance Back Test   metric cards, growth of $1
@@ -60,8 +61,7 @@ Local development uses [uv](https://docs.astral.sh/uv/) to manage both the Pytho
 | `.python-version` | Exact Python version used by uv for local development (`3.13.5`). |
 | `pyproject.toml` | Direct production dependencies, the `dev` dependency group, and pytest settings. **Edit dependencies here.** |
 | `uv.lock` | Exact resolved versions of every package. Commit it. |
-| `requirements.txt` | **Generated** from `uv.lock` for Hugging Face Spaces, which installs only from this file. Do not edit it by hand. |
-| `.pre-commit-config.yaml` | Git pre-commit hook that keeps `uv.lock` and `requirements.txt` in sync with `pyproject.toml` on every commit. |
+| `.pre-commit-config.yaml` | Git pre-commit hook that keeps `uv.lock` in sync with `pyproject.toml` on every commit. |
 
 Install uv (once), then create the virtual environment in `.venv/` with the pinned Python version and all production and development dependencies:
 
@@ -93,32 +93,23 @@ uv add --dev <package>
 uv remove <package>
 ```
 
-Commit `pyproject.toml`, `uv.lock`, and `requirements.txt` together. The pre-commit hook regenerates `uv.lock` and `requirements.txt` whenever they are out of date. The hook runs in GitHub Desktop as well as on the command line.
+Commit `pyproject.toml` and `uv.lock` together. The pre-commit hook re-locks `uv.lock` whenever it is out of date. The hook runs in GitHub Desktop as well as on the command line. The Docker build installs with `uv sync --locked`, so it fails if `uv.lock` does not match `pyproject.toml`; `uv lock --check` tests this locally.
 
-**If a commit fails because the hook changed files:** this is expected. The hook updated `uv.lock` and/or `requirements.txt` and stopped the commit so you can include them. In GitHub Desktop, the updated files appear in the Changes list; make sure they are checked and commit again.
+**If a commit fails because the hook changed files:** this is expected. The hook updated `uv.lock` and stopped the commit so you can include it. In GitHub Desktop, the updated file appears in the Changes list; make sure it is checked and commit again.
 
-### Before deploying to Hugging Face Spaces
+### Keeping versions in sync
 
-Hugging Face installs dependencies only from `requirements.txt`, so it must match `uv.lock` before you push to the Space. The pre-commit hook normally handles this. If the hook was not installed, was skipped, or you are unsure, regenerate the file manually from the repo root and commit any changes:
+These must be kept in agreement by hand:
 
-```
-uv export --format requirements-txt --no-dev --no-hashes -o requirements.txt
-```
+- **Python:** `.python-version` and the base image in the `Dockerfile` (`FROM python:3.13.5-slim-bookworm`) must name the same exact version (currently `3.13.5`). `requires-python` in `pyproject.toml` (`==3.13.*`) must include it; it covers the whole 3.13 series, so a patch upgrade does not require re-locking.
+- **uv:** the `rev` in `.pre-commit-config.yaml`, the `ghcr.io/astral-sh/uv` image tag in the `Dockerfile`, and `version` in `.github/workflows/tests.yml` (currently `0.13.0`).
+- **Gradio:** pinned only by `gradio==` in `pyproject.toml` (currently `6.30.0`).
 
-`--no-dev` keeps development tools out of the deployment, and `--no-hashes` avoids pip hash-checking conflicts with the packages Hugging Face pre-installs. After deploying, check the Space's build log to confirm it used the expected Python version and installed from `requirements.txt`.
-
-### Keeping versions in sync with Hugging Face Spaces
-
-Hugging Face reads the Python and Gradio versions from the frontmatter of [`README.md`](../README.md), not from `pyproject.toml`, so these must be kept in agreement by hand:
-
-- **Python:** `python_version` in the frontmatter and `.python-version` must name the same exact version (currently `3.13.5`). `requires-python` in `pyproject.toml` (`==3.13.*`) must include it; it covers the whole 3.13 series, so a patch upgrade does not require re-locking.
-- **Gradio:** `sdk_version` in the frontmatter and the `gradio==` pin in `pyproject.toml`.
-
-Development is on macOS while Hugging Face runs Debian Linux, so the environments match in Python and package versions but not in operating system or CPU architecture. One practical consequence: macOS file names are case-insensitive by default and Linux file names are case-sensitive, so keep file name casing exact in code.
+Development is on macOS while production runs in a Debian-based Linux container on an x86_64 Ubuntu VPS, so the environments match in Python and package versions but not in operating system or CPU architecture. One practical consequence: macOS file names are case-insensitive by default and Linux file names are case-sensitive, so keep file name casing exact in code.
 
 ### `.env` file and environment variables
 
-On the production deployment on Hugging Face Spaces, these environment variables are held by the secrets manager. On a development environment, these are managed in a `.env` file **that should never be committed to GitHub or Hugging Face**.
+In production, these environment variables are set in the Dokploy application's environment settings (see "Deployment" below). On a development environment, they are managed in a `.env` file **that should never be committed to GitHub**; `.dockerignore` also keeps it out of the Docker image.
 
 1. `AWS_ENDPOINT_URL_S3`: the **region-only** endpoint, `https://<region>.digitaloceanspaces.com`. Do **not** use the Space-specific "origin endpoint" (`https://<space>.<region>.digitaloceanspaces.com`); with it, listing the available dates fails with `NoSuchKey`, so the app refuses an endpoint whose host starts with the Space name.
 
@@ -136,6 +127,46 @@ Dev and production share the one Space and differ only in the two folder names, 
 
 Older names are no longer read, with no fallback. Before contract v45 the three shared variables were `FSF_FRONT_END_BUCKET_NAME`, `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, and `FSF_FRONT_END_TIME_SERIES_FOLDER` (and before v13 the folder variables were `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`). The credentials were `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`, and `FSF_FRONT_END_BUCKET_READ_ONLY`.
 
+## Deployment
+
+The live dashboard, AliciaData Finance, is served at https://finance.aliciadata.com by a self-hosted [Dokploy](https://dokploy.com) instance on a VPS. Deployment is manual; GitHub Actions only runs the tests.
+
+```
+ pull request to main ─► GitHub Actions: tests workflow (uv sync --locked, pytest)
+                         required to pass by a ruleset before merging
+ merge to main
+ click Deploy in Dokploy ─► Dokploy pulls main from GitHub
+                            builds the Dockerfile on the VPS
+                            replaces the running container (one replica)
+ visitor ─► https://finance.aliciadata.com ─► Traefik (Let's Encrypt HTTPS)
+                                           ─► container, port 7860 ─► Gradio app
+```
+
+### Docker image
+
+The [`Dockerfile`](../Dockerfile) builds from `python:3.13.5-slim-bookworm`, copies in uv, installs the production dependencies from `uv.lock` with `uv sync --locked --no-dev --no-install-project`, and copies only `app.py`, `data_loading.py`, and `s3_downloader.py`. The app runs as a non-root user that can write only `input/`, which is a throwaway download cache inside the container (no volume is needed). Gradio listens on `0.0.0.0:7860` (set by `GRADIO_SERVER_NAME` and `GRADIO_SERVER_PORT`). [`.dockerignore`](../.dockerignore) keeps `.env`, `input/`, `.venv/`, the tests, the docs, and other development files out of the build.
+
+### Tests workflow
+
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml) runs `uv sync --locked` and `uv run pytest` on every pull request to `main` and every push to `main`, with read-only repository permissions and no secrets. Its actions are pinned by full commit SHA. A ruleset on `main` requires the `test` job to pass before a pull request can be merged. The workflow does not deploy: the Dokploy dashboard is reachable only over a private network, not from GitHub.
+
+### Dokploy application settings
+
+- **Source:** Git, `https://github.com/akey7/aliciadata-finance-frontend.git`, branch `main`. Build type Dockerfile, path `Dockerfile`, context `.`. Automatic deployment is off.
+- **Environment:** the seven variables listed above, with the **production** folder names.
+- **Domain:** `finance.aliciadata.com`, path `/`, container port **7860**, HTTPS with Let's Encrypt. No ports are published directly.
+- **Replicas:** 1, because the in-memory cache and Gradio sessions are per process.
+
+### Deploying and rolling back
+
+1. Merge a pull request into `main` after the tests workflow passes.
+2. In Dokploy, open the application and click **Deploy**. Follow the build in the deployment log.
+3. Check the application log for `Running on local URL: http://0.0.0.0:7860` and the absence of `Could not create the S3 client` or `Missing configuration`, then load https://finance.aliciadata.com.
+
+There is no automatic rollback. To roll back, redeploy an earlier deployment from the application's deployment list in Dokploy, or revert the change on `main` and deploy again.
+
+**Troubleshooting:** if the container keeps restarting with no log output, `docker service ps <service> --no-trunc` on the server shows its exit code, and running the image with `-e PYTHONFAULTHANDLER=1` prints a traceback for crashes such as exit code 132 (illegal instruction).
+
 ## Purposes of folders and scripts
 
 ### Folders
@@ -152,6 +183,10 @@ Older names are no longer read, with no fallback. Before contract v45 the three 
 | `s3_downloader.py` | No                    | Lists folders in the Space and downloads data from it for display on the app.            |
 | `data_loading.py`  | No                    | Finds available dates and loads and validates the downloaded files against the [Interface Contract](INTERFACE_CONTRACT.md). |
 
-## Hugging Face Spaces Docs
+### Deployment files
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+| Filename                      | Purpose                                                                                       |
+| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| `Dockerfile`                  | Builds the production image (see "Deployment").                                               |
+| `.dockerignore`               | Keeps secrets, local data, and development files out of the image build.                      |
+| `.github/workflows/tests.yml` | Runs the tests on pull requests to `main` and pushes to `main`. Does not deploy.              |

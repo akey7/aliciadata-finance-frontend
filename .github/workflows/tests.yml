@@ -1,0 +1,43 @@
+# Runs the test suite on every pull request to main and every push to main.
+# A ruleset on main requires the `test` job to pass before a pull request
+# can be merged. Deployment is not automated: after a merge, the app is
+# deployed by hand from Dokploy (see docs/ARCHITECTURE_AND_INSTALLATION.md).
+# The tests use no network access and no secrets.
+#
+# Third-party actions are pinned by full commit SHA, with the release tag in
+# a comment. To update one, look up the new tag's commit SHA on GitHub.
+
+name: tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # uv pinned to the same version as the pre-commit hooks and the
+      # Dockerfile. uv reads the Python version from .python-version.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.0"
+
+      - name: Install dependencies from uv.lock
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run pytest

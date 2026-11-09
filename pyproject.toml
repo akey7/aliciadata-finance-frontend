@@ -2,12 +2,13 @@
 name = "aliciadata-finance-frontend"
 version = "0.1.0"
 description = "Gradio frontend for portfolio optimization and ARIMA time series results."
-# Keep in sync with .python-version and `python_version` in the README frontmatter.
+# Must include the exact version in .python-version and the Dockerfile's
+# base image (3.13.5); only a minor-version upgrade changes this line.
 requires-python = "==3.13.*"
 dependencies = [
     "boto3",
     "botocore",
-    # Must match `sdk_version` in the README frontmatter.
+    # Pinned on purpose: bumping Gradio is a deliberate change (see CLAUDE.md).
     "gradio==6.30.0",
     "h5py",
     "matplotlib",
@@ -27,8 +28,8 @@ dev = [
 ]
 
 [tool.uv]
-# This is an app, not an installable package. This also keeps
-# `uv export` from adding an editable `-e .` line to requirements.txt.
+# This is an app, not an installable package, so uv installs only its
+# dependencies.
 package = false
 
 [tool.pytest.ini_options]
