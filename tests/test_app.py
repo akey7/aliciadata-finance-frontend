@@ -45,6 +45,7 @@ from app import (
 from app import (
     APP_TITLE,
     APP_TITLE_MD,
+    DOCS_LINKS_MD,
     BACKTEST_COLORS,
     BACKTEST_UNPUBLISHED,
     BACKTEST_VALUE_COLUMN,
@@ -850,6 +851,17 @@ def test_backtest_assumptions_fill_settings_from_the_file():
 def test_app_title_is_the_display_name_and_a_top_level_heading():
     assert APP_TITLE == "AliciaData Finance"
     assert APP_TITLE_MD == "# AliciaData Finance"
+
+
+def test_docs_links_are_body_text_with_both_links():
+    assert DOCS_LINKS_MD == (
+        "Documentation on [dashboard operation]"
+        "(https://github.com/akey7/aliciadata-finance-frontend/blob/main/docs/"
+        "DASHBOARD_GUIDE.md) and a [full explanation of methods and results]"
+        "(https://akey7.github.io/posts/aliciadata-finance/) are available."
+    )
+    # Normal text, not a heading.
+    assert not DOCS_LINKS_MD.startswith("#")
 
 
 def test_backtest_assumptions_explain_volatility_only_when_shown():

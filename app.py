@@ -55,6 +55,14 @@ TIME_SERIES_FOLDER_ENV = "S3_TIME_SERIES_FOLDER"
 # page.
 APP_TITLE = "AliciaData Finance"
 APP_TITLE_MD = f"# {APP_TITLE}"
+# Shown under the page title, in normal body text: where to read about
+# using the dashboard and about the methods behind it.
+DOCS_LINKS_MD = (
+    "Documentation on [dashboard operation]"
+    "(https://github.com/akey7/aliciadata-finance-frontend/blob/main/docs/DASHBOARD_GUIDE.md) "
+    "and a [full explanation of methods and results]"
+    "(https://akey7.github.io/posts/aliciadata-finance/) are available."
+)
 
 # The contract's disclaimer, verbatim. Shown exactly once, at the bottom of
 # the page; do not repeat it in captions, tooltips, or metric descriptions.
@@ -2051,8 +2059,8 @@ class FSFinance:
         Run the Gradio app.
 
         The page is a single column: the page title (APP_TITLE_MD, a `#`
-        heading), the date dropdown and the individual
-        assets accordion, then the Portfolio Optimization section, then the
+        heading), the links to the documentation (DOCS_LINKS_MD), the date
+        dropdown and the individual assets accordion, then the Portfolio Optimization section, then the
         Timeseries Analysis section, each under a `#` heading. The Portfolio
         Optimization section stacks two parts under `##` headings: Historical Performance Back Test, then Latest
         Optimization. On every page load the available dates are listed and
@@ -2097,6 +2105,7 @@ class FSFinance:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             gr.Markdown(APP_TITLE_MD)
+            gr.Markdown(DOCS_LINKS_MD)
             gr.Markdown(
                 "Trading day selection (default is most recent day) and individual "
                 "asset information",
