@@ -45,6 +45,7 @@ from app import (
 from app import (
     APP_TITLE,
     APP_TITLE_MD,
+    DOCS_LINKS_MD,
     BACKTEST_COLORS,
     BACKTEST_UNPUBLISHED,
     BACKTEST_VALUE_COLUMN,
@@ -643,15 +644,19 @@ def test_plot_without_max_return_portfolio():
 
 
 def backtest_metadata(**overrides):
-    """Build back test metadata with distinctive window lengths."""
+    """
+    Build back test metadata shaped like a contract v46+ file: a back test of
+    about a year, with distinctive, mutually consistent window lengths
+    (trading_days / rebalance_interval_sessions = rebalance_count).
+    """
     values = dict(
-        initial_wealth_date="2026-07-31",
-        start_date="2026-08-03",
+        initial_wealth_date="2025-11-03",
+        start_date="2025-11-04",
         end_date="2026-10-30",
-        trading_days=61,
+        trading_days=250,
         training_window_returns=252,
-        rebalance_interval_sessions=20,
-        rebalance_count=3,
+        rebalance_interval_sessions=25,
+        rebalance_count=10,
         fallback_count=0,
         max_sharpe=BacktestMetrics(
             cagr=10.84, cumulative_return=47.3, max_drawdown=-19.6
@@ -661,6 +666,22 @@ def backtest_metadata(**overrides):
         ),
     )
     return BacktestMetadata(**{**values, **overrides})
+
+
+def short_backtest_metadata(**overrides):
+    """
+    Build back test metadata shaped like a date folder written before
+    contract v46, whose back test is as short as the forecast evaluation.
+    """
+    values = dict(
+        initial_wealth_date="2026-08-04",
+        start_date="2026-08-05",
+        end_date="2026-10-30",
+        trading_days=60,
+        rebalance_interval_sessions=20,
+        rebalance_count=3,
+    )
+    return backtest_metadata(**{**values, **overrides})
 
 
 def backtest_daily():
@@ -720,7 +741,15 @@ def test_price_history_bolds_only_its_label():
 
 def test_backtest_heading_has_dates_without_times():
     assert backtest_heading_markdown(backtest_metadata()) == (
-        "## Historical Performance Back Test: 2026-07-31 to 2026-10-30"
+        "## Historical Performance Back Test: 2025-11-03 to 2026-10-30"
+    )
+
+
+def test_backtest_heading_uses_each_dates_own_window():
+    # An older (pre-v46) date has a short back test; its heading shows its
+    # own dates, not those of a newer date or of the forecasts.
+    assert backtest_heading_markdown(short_backtest_metadata()) == (
+        "## Historical Performance Back Test: 2026-08-04 to 2026-10-30"
     )
 
 
@@ -729,9 +758,10 @@ def test_backtest_heading_without_metadata_has_no_dates():
 
 
 def test_backtest_cards_order_and_values():
+    # Cumulative return first: it is the headline comparison.
     assert backtest_cards(backtest_metadata().max_sharpe) == [
-        ("CAGR", "+10.8%"),
         ("Cumulative Return", "+47.3%"),
+        ("CAGR", "+10.8%"),
         ("Max Drawdown", "−19.6%"),
     ]
 
@@ -758,8 +788,8 @@ def test_backtest_metrics_note_reads_the_number_of_returns_from_the_file():
         backtest_metadata(trading_days=60, max_sharpe=metrics)
     )
     assert note == (
-        "***Calculated from 60 out-of-sample daily portfolio returns.*** *CAGR and "
-        "cumulative return: higher is better; maximum drawdown: closer to 0% is "
+        "***Calculated from 60 out-of-sample daily portfolio returns.*** *cumulative "
+        "return and CAGR: higher is better; maximum drawdown: closer to 0% is "
         "better; annualized volatility (realized): lower is better.*"
     )
 
@@ -837,19 +867,83 @@ def test_backtest_plot_uses_data_limits_and_fixed_colors():
 def test_backtest_assumptions_fill_settings_from_the_file():
     text = backtest_assumptions_markdown(backtest_metadata())
     assert text.startswith("### Back testing")
-    assert "Growth of $1 over the last 61 trading days." in text
-    assert "Every 20 trading days" in text
+    assert "Growth of $1 over the last 250 trading days." in text
+    assert "Every 25 trading days" in text
     assert "previous 252 daily returns" in text
-    assert "only 3 independent decisions" in text
+    assert "only 10 rebalancing decisions" in text
     assert "weights can drift past the per-ticker weight cap" in text
     # The disclaimer is shown once, at the bottom of the page.
     assert DISCLAIMER_MD not in text
     assert "investment advice" not in text.lower()
 
 
+def test_backtest_assumptions_use_the_v46_suggested_wording():
+    text = backtest_assumptions_markdown(backtest_metadata())
+    assert (
+        "Growth of $1 over the last 250 trading days. Every 25 trading days, the "
+        "max Sharpe ratio portfolio is re-optimized on the previous 252 daily "
+        "returns, using only data available at that date, and the baseline is reset "
+        "to equal weights; between those dates no trades are made and weights drift. "
+        "Execution is idealized, with no transaction costs. This is one period of "
+        "250 trading days for a fixed set of tickers chosen with hindsight, so it "
+        "does not show that either portfolio is better."
+    ) in text
+    # The pre-v46 wording called every back test a short period.
+    assert "short period" not in text
+    assert "scales a short window" not in text
+
+
+def test_backtest_assumptions_explain_cagr_for_any_length():
+    text = backtest_assumptions_markdown(backtest_metadata())
+    assert "it scales the 250-trading-day window to a full year." in text
+    assert "for a window close to a year, CAGR is close to cumulative return" in text
+    assert "Prefer cumulative return as the headline figure." in text
+
+
+def test_backtest_assumptions_say_it_is_not_the_forecasts_period():
+    text = backtest_assumptions_markdown(backtest_metadata())
+    assert "**Not the forecasts' period:**" in text
+    assert "start on different dates" in text
+    assert "before interface contract v46 have much shorter back tests" in text
+
+
+def test_backtest_assumptions_fill_each_dates_own_settings():
+    # Switching dates rebuilds the text from that date's file, so an older
+    # short back test and a newer long one each show their own numbers.
+    long_text = backtest_assumptions_markdown(backtest_metadata())
+    short_text = backtest_assumptions_markdown(short_backtest_metadata())
+    assert "Growth of $1 over the last 60 trading days." in short_text
+    assert "Every 20 trading days" in short_text
+    assert "only 3 rebalancing decisions" in short_text
+    assert "the 60-trading-day window" in short_text
+    for number in ("250 trading days", "Every 25 trading days", "only 10 "):
+        assert number not in short_text
+        assert number in long_text
+
+
+def test_backtest_metrics_note_uses_each_dates_own_length():
+    assert "Calculated from 250 out-of-sample" in backtest_metrics_note_markdown(
+        backtest_metadata()
+    )
+    assert "Calculated from 60 out-of-sample" in backtest_metrics_note_markdown(
+        short_backtest_metadata()
+    )
+
+
 def test_app_title_is_the_display_name_and_a_top_level_heading():
     assert APP_TITLE == "AliciaData Finance"
     assert APP_TITLE_MD == "# AliciaData Finance"
+
+
+def test_docs_links_are_body_text_with_both_links():
+    assert DOCS_LINKS_MD == (
+        "Documentation on [dashboard operation]"
+        "(https://github.com/akey7/aliciadata-finance-frontend/blob/main/docs/"
+        "DASHBOARD_GUIDE.md) and a [full explanation of methods and results]"
+        "(https://akey7.github.io/posts/aliciadata-finance/) are available."
+    )
+    # Normal text, not a heading.
+    assert not DOCS_LINKS_MD.startswith("#")
 
 
 def test_backtest_assumptions_explain_volatility_only_when_shown():
@@ -861,7 +955,7 @@ def test_backtest_assumptions_explain_volatility_only_when_shown():
     )
     text = backtest_assumptions_markdown(backtest_metadata(max_sharpe=metrics))
     assert "Realized versus estimated volatility" in text
-    assert "with only 61 returns" in text
+    assert "with only 250 returns" in text
 
 
 def test_backtest_assumptions_mention_fallback_only_when_used():
@@ -869,7 +963,7 @@ def test_backtest_assumptions_mention_fallback_only_when_used():
     text = backtest_assumptions_markdown(
         backtest_metadata(fallback_count=1, fallback_assumption="previous weights")
     )
-    assert "1 of the 3 rebalances did not use a new optimization" in text
+    assert "1 of the 10 rebalances did not use a new optimization" in text
     assert "(previous weights)" in text
 
 

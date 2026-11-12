@@ -35,6 +35,7 @@ The backend does all the modeling and publishes its results; this app only lists
    │
    └─ 3. DISPLAY   per visitor (selected date and ticker in Gradio state)
           # AliciaData Finance       page title (the display name)
+          links to the docs          dashboard guide; methods and results
           date selector              date dropdown; individual assets accordion
           # Portfolio Optimization
             ## Historical Performance Back Test   metric cards, growth of $1
