@@ -27,13 +27,7 @@ Both sections answer the same kind of question: **does the model do better than 
 
 ## Selecting a date
 
-<!--
-Screenshot idea: the top of the page, showing the "AliciaData Finance" title,
-the "Data as of (NYSE trading day)" dropdown with its list of dates open,
-and the collapsed "Information about individual assets..." accordion.
-Suggested file: images/dashboard-guide/01-date-selector.png
-![Date selector](images/dashboard-guide/01-date-selector.png)
--->
+![The top of the page: the AliciaData Finance title, the "Data as of (NYSE trading day)" date dropdown, and the collapsed individual assets accordion](images/dashboard-guide/01-date-selector.png)
 
 The **Data as of (NYSE trading day)** dropdown selects which backend run the whole page shows. Each entry is the last trading day of price data in that run, shown with its weekday, such as `2026-11-06 (Fri)`. The newest date is selected when the page opens, and older dates stay available for comparison.
 
@@ -43,13 +37,7 @@ Older dates were produced by earlier versions of the backend, so some of them la
 
 ### Information about individual assets
 
-<!--
-Screenshot idea: the "Information about individual assets..." accordion
-opened, showing the table of tickers with annualized return and volatility,
-ideally sorted by clicking a column header.
-Suggested file: images/dashboard-guide/02-individual-assets.png
-![Individual assets table](images/dashboard-guide/02-individual-assets.png)
--->
+![The opened individual assets accordion: a table of tickers with their annualized return and annualized volatility](images/dashboard-guide/02-individual-assets.png)
 
 This collapsed accordion lists every ticker in the selected run, each held on its own, with its **annualized return (%)** (higher is better) and **annualized volatility (σ, %)** (lower is better). Click a column header to sort by it. The table helps explain where the portfolios in the Latest Optimization plot sit.
 
@@ -63,13 +51,7 @@ This section compares an optimized portfolio, the **maximum Sharpe ratio portfol
 
 ### Historical Performance Back Test
 
-<!--
-Screenshot idea: the "Historical Performance Back Test" heading with its
-date range, the blue "Max Sharpe Portfolio" cards and the gray
-"Equal-Weight Baseline Portfolio" cards, and the note below them.
-Suggested file: images/dashboard-guide/03-backtest-cards.png
-![Back test metric cards](images/dashboard-guide/03-backtest-cards.png)
--->
+![The Historical Performance Back Test heading with its date range, the blue Max Sharpe Portfolio cards, the gray Equal-Weight Baseline Portfolio cards, and the note below them](images/dashboard-guide/03-backtest-cards.png)
 
 The heading shows the period the back test covers. Over that period, the max Sharpe portfolio was periodically re-optimized using only the data available at each point in time, and the baseline was periodically reset to equal weights. The results are out of sample: each portfolio is scored on days that came after the data it was built from.
 
@@ -84,25 +66,13 @@ Each portfolio has a row of cards. The blue cards are the max Sharpe portfolio, 
 
 The note below the cards states how many daily returns the metrics were calculated from. The volatility card appears only for dates whose results include it.
 
-<!--
-Screenshot idea: the "Growth of $1" line plot, with the tooltip showing for
-one day so readers can see the trading day and the value of each
-portfolio.
-Suggested file: images/dashboard-guide/04-growth-of-1.png
-![Growth of $1](images/dashboard-guide/04-growth-of-1.png)
--->
+![The Growth of $1 plot: the value of $1 invested in the max Sharpe portfolio (blue) and the equal-weight baseline (gray) at each market close](images/dashboard-guide/04-growth-of-1.png)
 
 The **Growth of $1** plot shows what $1 invested in each portfolio at the start of the period was worth at each later market close. The blue line is the max Sharpe portfolio and the gray line is the equal-weight baseline, so the plot compares the optimized portfolio against the naive baseline day by day. A line that ends higher grew more over the period. Hover over the plot to see the trading day and each portfolio's value.
 
 ### Latest Optimization
 
-<!--
-Screenshot idea: the "Mean–Variance Portfolio Optimization" plot, showing
-the random portfolios, the efficient frontier, the capital allocation line,
-and the marked portfolios with the legend.
-Suggested file: images/dashboard-guide/05-portfolio-optimization-plot.png
-![Mean-variance portfolio optimization plot](images/dashboard-guide/05-portfolio-optimization-plot.png)
--->
+![The Mean–Variance Portfolio Optimization plot: random portfolios, the efficient frontier, the capital allocation line, and the marked portfolios, with the legend](images/dashboard-guide/05-portfolio-optimization-plot.png)
 
 This part shows the portfolios estimated from the price history ending on the selected date. The line under the heading gives the dates of that price history.
 
@@ -117,12 +87,7 @@ The **Mean–Variance Portfolio Optimization** plot places portfolios by their a
 
 Comparing the marked portfolios with the cloud shows how far the optimized portfolios are from portfolios like the naive baseline.
 
-<!--
-Screenshot idea: the "Latest Optimization Weights" table, showing the weight
-of each ticker in each portfolio.
-Suggested file: images/dashboard-guide/06-latest-weights.png
-![Latest optimization weights](images/dashboard-guide/06-latest-weights.png)
--->
+![The Latest Optimization Weights table: each ticker's weight in the max Sharpe, minimum variance, and maximum return portfolios](images/dashboard-guide/06-latest-weights.png)
 
 The **Latest Optimization Weights** table gives each ticker's share of each portfolio, in percent: **Max Sharpe Weight**, **Min Variance Weight**, and, when available, **Max Return Weight**. Each portfolio's weights add up to 100%. A weight of 0.00% means the portfolio does not hold that ticker.
 
@@ -138,13 +103,7 @@ The **Ticker** dropdown selects which ticker the plot and the accuracy metrics s
 
 ### Forecast plot
 
-<!--
-Screenshot idea: the forecast plot for one ticker, with the tooltip showing
-on an ARIMA forecast point so the model order is visible, and the last
-forecast point (with no actual close) visible at the right end.
-Suggested file: images/dashboard-guide/07-forecast-plot.png
-![Forecast plot](images/dashboard-guide/07-forecast-plot.png)
--->
+![The forecast plot for one ticker: actual close, ARIMA forecast, and naive forecast, with the tooltip of an ARIMA point showing its model](images/dashboard-guide/07-forecast-plot.png)
 
 The plot shows, for each trading day, three lines:
 
@@ -158,12 +117,7 @@ Hover over an ARIMA point to see the model behind that day's forecast. The model
 
 ### Forecast accuracy
 
-<!--
-Screenshot idea: the "Forecast accuracy" table beside the plot, together
-with the gray "ARIMA vs. naive" panel below it.
-Suggested file: images/dashboard-guide/08-forecast-accuracy.png
-![Forecast accuracy table and summary](images/dashboard-guide/08-forecast-accuracy.png)
--->
+![The Forecast accuracy table comparing ARIMA and naive forecasts, and the gray ARIMA vs. naive panel with relative MAE and skill](images/dashboard-guide/08-forecast-accuracy.png)
 
 The **Forecast accuracy** table scores the ARIMA and naive forecasts on the same recent trading days, side by side. The line above it gives the number of days and their dates.
 
@@ -186,31 +140,6 @@ The gray **ARIMA vs. naive** panel sums up the comparison in two numbers and a s
 Both are scale-free, so they can also be compared across tickers.
 
 The collapsed **Reading the accuracy metrics, walk-forward ARIMA, naive forecasting, and out-of-sample evaluation...** accordion below the plot gives the training and scoring windows for the selected date. For how the metrics are calculated, see the [Methods and Results](https://akey7.github.io/posts/aliciadata-finance/) document.
-
-## Bottom of the page
-
-The line above the disclaimer gives the version of the data format the dashboard reads, and reminds readers to check the "Data as of" date at the top of the page.
-
-## Images
-
-Screenshots for this guide go in `docs/images/dashboard-guide/`, numbered in page order so they sort the same way they appear:
-
-```
-docs/
-├── DASHBOARD_GUIDE.md
-└── images/
-    └── dashboard-guide/
-        ├── 01-date-selector.png
-        ├── 02-individual-assets.png
-        ├── 03-backtest-cards.png
-        ├── 04-growth-of-1.png
-        ├── 05-portfolio-optimization-plot.png
-        ├── 06-latest-weights.png
-        ├── 07-forecast-plot.png
-        └── 08-forecast-accuracy.png
-```
-
-Each screenshot's place in this guide is marked by an HTML comment with the suggested file name and an image link to uncomment.
 
 ---
 
