@@ -812,8 +812,10 @@ def backtest_heading_markdown(metadata):
 def backtest_cards(metrics):
     """
     Return the label and value of each back test metric card. The metrics
-    come from the backend; nothing is computed here. The realized volatility
-    card is last, on the right of the row, and only for contract v42+ dates.
+    come from the backend; nothing is computed here. Cumulative return is
+    first, as the headline comparison the contract recommends; CAGR follows
+    it. The realized volatility card is last, on the right of the row, and
+    only for contract v42+ dates.
 
     Parameters
     ----------
@@ -827,8 +829,8 @@ def backtest_cards(metrics):
         signed; volatility has no direction, so it is not.
     """
     cards = [
-        ("CAGR", signed_percent(metrics.cagr)),
         ("Cumulative Return", signed_percent(metrics.cumulative_return)),
+        ("CAGR", signed_percent(metrics.cagr)),
         ("Max Drawdown", signed_percent(metrics.max_drawdown)),
     ]
     if metrics.annualized_volatility is not None:
@@ -858,7 +860,7 @@ def backtest_metrics_note_markdown(metadata):
         One line of bold italic and italic markdown.
     """
     directions = (
-        "CAGR and cumulative return: higher is better; maximum drawdown: closer to "
+        "cumulative return and CAGR: higher is better; maximum drawdown: closer to "
         "0% is better"
     )
     if (
@@ -980,10 +982,14 @@ def backtest_plot(daily):
 def backtest_assumptions_markdown(metadata):
     """
     Generate the "Back testing" part of the assumptions accordion: the
-    contract's suggested wording, with the window lengths read from the
-    file, then its notes on reading the results. A note on the fallback is
-    added only when a rebalance used it. The investment-advice disclaimer
-    is not repeated here; it is shown once, at the bottom of the page.
+    contract's suggested wording (v46), with the window lengths read from
+    the file, then its notes on reading the results. A note on the fallback
+    is added only when a rebalance used it. The text holds for any back
+    test length, so it suits both the year-long back tests of contract v46+
+    dates and the short ones of older dates; nothing assumes a length or
+    that the back test covers the same days as the forecast metrics. The
+    investment-advice disclaimer is not repeated here; it is shown once, at
+    the bottom of the page.
 
     Parameters
     ----------
@@ -1019,9 +1025,9 @@ def backtest_assumptions_markdown(metadata):
         f"max Sharpe ratio portfolio is re-optimized on the previous {t} daily "
         "returns, using only data available at that date, and the baseline is reset "
         "to equal weights; between those dates no trades are made and weights drift. "
-        f"Execution is idealized, with no transaction costs. {n} trading days is a "
-        "short period for a fixed set of tickers chosen with hindsight, so this does "
-        "not show that either portfolio is better.",
+        "Execution is idealized, with no transaction costs. This is one period of "
+        f"{n} trading days for a fixed set of tickers chosen with hindsight, so it "
+        "does not show that either portfolio is better.",
         "",
         "- **Rebalance constraints:** they apply to the target weights set at each rebalance. "
         "Between rebalances, weights can drift past the per-ticker weight cap.",
@@ -1031,13 +1037,15 @@ def backtest_assumptions_markdown(metadata):
         "- **CAGR and annualized return are different quantities:** CAGR is compounded "
         "and realized over the back test, while the annualized returns plotted under "
         "Latest Optimization are arithmetic, in-sample estimates.",
-        "- **CAGR extrapolates:** it scales a short window to a full year, so a few "
-        "good days give a large number. Prefer the cumulative return as the headline "
-        "figure.",
+        f"- **CAGR extrapolates:** it scales the {n}-trading-day window to a full "
+        "year. For a window much shorter than a year, a few good days give a large "
+        "number; for a window close to a year, CAGR is close to cumulative return. "
+        "Prefer cumulative return as the headline figure.",
         *volatility_note,
         f"- **Small sample:** one window of {n} trading days cannot show that either "
-        "portfolio is better. The difference is one noisy outcome, and the back test "
-        f"has only {m.rebalance_count} independent decisions.",
+        "portfolio is better, even when it is about a year long. The difference is "
+        "one noisy outcome of one market period, and the back test has only "
+        f"{m.rebalance_count} rebalancing decisions.",
         "- **Fixed universe:** the tickers are the ones in the portfolio today, chosen "
         "with hindsight, for both portfolios.",
         "- **Idealized execution:** each rebalance happens exactly at the close whose "
@@ -1053,7 +1061,13 @@ def backtest_assumptions_markdown(metadata):
         "the back test.",
         "- **Comparing dates:** consecutive dates overlap almost entirely, and the "
         "settings can differ between them. Compare the number of trading days and the "
-        "rebalance schedule before comparing metrics across dates.",
+        "rebalance schedule before comparing metrics across dates. In particular, "
+        "dates published before interface contract v46 have much shorter back tests, "
+        "the same length as their forecast evaluation.",
+        "- **Not the forecasts' period:** the back test and the forecast accuracy "
+        "metrics under Timeseries Analysis both end on the selected date, but they "
+        "generally start on different dates and cover different numbers of trading "
+        "days.",
     ]
     if m.fallback_count > 0:
         fallback = f" ({m.fallback_assumption})" if m.fallback_assumption else ""
