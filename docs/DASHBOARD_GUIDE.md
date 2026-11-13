@@ -17,9 +17,9 @@ This guide deliberately stays brief on methods. For how the results are computed
 
 The dashboard is a single page, read from top to bottom:
 
-1. **AliciaData Finance:** the date selector and the information about individual assets.
+1. **AliciaData Finance:** links to this guide and to the Methods and Results document, then the date selector and the information about individual assets.
 2. **Portfolio Optimization:**
-   - **Historical Performance Back Test:** how an optimized portfolio did over recent trading days, compared with an equal-weight baseline.
+   - **Historical Performance Back Test:** how an optimized portfolio did over about the last year of trading days, compared with an equal-weight baseline.
    - **Latest Optimization:** the optimized portfolios estimated from the most recent data.
 3. **Timeseries Analysis:** one-day-ahead price forecasts for one ticker, compared with a naive baseline forecast.
 
@@ -27,13 +27,15 @@ Both sections answer the same kind of question: **does the model do better than 
 
 ## Selecting a date
 
-![The top of the page: the AliciaData Finance title, the "Data as of (NYSE trading day)" date dropdown, and the collapsed individual assets accordion](images/dashboard-guide/01-date-selector.png)
+![The top of the page: the AliciaData Finance title, the line linking to the dashboard documentation and to the full explanation of methods and results, the "Trading day selection" title, and the "Data as of (NYSE trading day)" date dropdown](images/dashboard-guide/01-date-selector.png)
+
+The line under the title links to this guide and to the [Methods and Results](https://akey7.github.io/posts/aliciadata-finance/) document.
 
 The **Data as of (NYSE trading day)** dropdown selects which backend run the whole page shows. Each entry is the last trading day of price data in that run, shown with its weekday, such as `2026-11-06 (Fri)`. The newest date is selected when the page opens, and older dates stay available for comparison.
 
 Changing the date reloads **both** sections from that date's results, so everything on the page always comes from the same run. The backend is run by hand, so dates are not consecutive and the newest date may be a few days old. Check this dropdown to see how current the data is.
 
-Older dates were produced by earlier versions of the backend, so some of them lack newer parts of the page, such as the back test or the accuracy metrics. In those places, the page shows a short message instead.
+Older dates were produced by earlier versions of the backend, so some of them lack newer parts of the page, such as the back test or the accuracy metrics. In those places, the page shows a short message instead. Older dates also have much shorter back tests, about three months instead of about a year, so check the back test's dates before comparing its results across dates.
 
 ### Information about individual assets
 
@@ -51,22 +53,24 @@ This section compares an optimized portfolio, the **maximum Sharpe ratio portfol
 
 ### Historical Performance Back Test
 
-![The Historical Performance Back Test heading with its date range, the blue Max Sharpe Portfolio cards, the gray Equal-Weight Baseline Portfolio cards, and the note below them](images/dashboard-guide/03-backtest-cards.png)
+![The Historical Performance Back Test heading with its date range of about a year. On the left, the blue Max Sharpe Portfolio cards and the gray Equal-Weight Baseline Portfolio cards (Cumulative Return, CAGR, Max Drawdown, and Annualized Volatility (realized)), with the note below them. On the right, a diagram of the rolling optimization: each optimization uses 250 days of data and is followed by a short out-of-sample period, and each one starts later than the one before](images/dashboard-guide/03-backtest-cards.png)
 
 The heading shows the period the back test covers. Over that period, the max Sharpe portfolio was periodically re-optimized using only the data available at each point in time, and the baseline was periodically reset to equal weights. The results are out of sample: each portfolio is scored on days that came after the data it was built from.
+
+The diagram beside the cards shows this schedule. Each bar is one optimization: the blue part is the previous 250 trading days of data it uses, and the orange part is the out-of-sample days that follow, during which the portfolio is held. The next optimization starts later and again uses only the data available at that point.
 
 Each portfolio has a row of cards. The blue cards are the max Sharpe portfolio, and the gray cards are the equal-weight baseline:
 
 | Card | Better when |
 | --- | --- |
-| **CAGR** | Higher |
 | **Cumulative Return** | Higher |
+| **CAGR** | Higher |
 | **Max Drawdown** | Closer to 0% |
 | **Annualized Volatility (realized)** | Lower |
 
-The note below the cards states how many daily returns the metrics were calculated from. The volatility card appears only for dates whose results include it.
+Cumulative return is the main comparison. Over a back test of about a year, CAGR comes out close to cumulative return. The note below the cards states how many daily returns the metrics were calculated from. The volatility card appears only for dates whose results include it.
 
-![The Growth of $1 plot: the value of $1 invested in the max Sharpe portfolio (blue) and the equal-weight baseline (gray) at each market close](images/dashboard-guide/04-growth-of-1.png)
+![The Growth of $1 plot over about a year: the value of $1 invested in the max Sharpe portfolio (blue) and the equal-weight baseline (gray) at each market close](images/dashboard-guide/04-growth-of-1.png)
 
 The **Growth of $1** plot shows what $1 invested in each portfolio at the start of the period was worth at each later market close. The blue line is the max Sharpe portfolio and the gray line is the equal-weight baseline, so the plot compares the optimized portfolio against the naive baseline day by day. A line that ends higher grew more over the period. Hover over the plot to see the trading day and each portfolio's value.
 
@@ -101,25 +105,13 @@ This section compares one-day-ahead **ARIMA** price forecasts with a **naive for
 
 The **Ticker** dropdown selects which ticker the plot and the accuracy metrics show. It lists only the tickers in the selected date's results. As explained in "Why you cannot choose your own tickers", other tickers cannot be entered.
 
-### Forecast plot
-
-![The forecast plot for one ticker: actual close, ARIMA forecast, and naive forecast, with the tooltip of an ARIMA point showing its model](images/dashboard-guide/07-forecast-plot.png)
-
-The plot shows, for each trading day, three lines:
-
-- **Actual:** the ticker's adjusted closing price.
-- **ARIMA forecast:** the model's forecast of that close, made using only data from before that day.
-- **Naive forecast:** the most recent observed close before that day.
-
-Where the forecast lines stay closer to the actual line, the forecasts were more accurate. Every day except the last has an actual close, so those forecasts can be checked. The **last point** is the forecast for the next trading day, which has not happened yet, so it has no actual close.
-
-Hover over an ARIMA point to see the model behind that day's forecast. The model is refit every day, so its settings can change from one day to the next.
-
 ### Forecast accuracy
 
-![The Forecast accuracy table comparing ARIMA and naive forecasts, and the gray ARIMA vs. naive panel with relative MAE and skill](images/dashboard-guide/08-forecast-accuracy.png)
+![The top of Timeseries Analysis. On the left, the Ticker dropdown and the Forecast accuracy table comparing the ARIMA and naive forecasts. On the right, a diagram of the walk-forward fitting (each fit uses 250 days of data and is scored on the next day, and each one starts a day later than the one before), with the gray ARIMA vs. naive panel showing relative MAE and skill below it](images/dashboard-guide/08-forecast-accuracy.png)
 
-The **Forecast accuracy** table scores the ARIMA and naive forecasts on the same recent trading days, side by side. The line above it gives the number of days and their dates.
+The diagram on the right shows how the forecasts are made. Each bar is one fit: the blue part is the previous 250 trading days the model is fitted on, and the orange part is the next day, the one it forecasts and is scored on. The window then moves forward one day for the next fit.
+
+The **Forecast accuracy** table scores the ARIMA and naive forecasts on the same recent trading days, side by side. The line above it gives the number of days and their dates. These scored days cover a much shorter, more recent period than the back test in Portfolio Optimization, so the two sections' numbers do not come from the same days.
 
 | Metric | Units | Better when |
 | --- | --- | --- |
@@ -130,7 +122,7 @@ The **Forecast accuracy** table scores the ARIMA and naive forecasts on the same
 
 RMSE and MAE are in each ticker's own price units, so use them to compare ARIMA with the naive forecast for one ticker, not to compare tickers. MAPE is in percent, so it can be compared across tickers. The naive forecast predicts no change, so it has no directional accuracy.
 
-The gray **ARIMA vs. naive** panel sums up the comparison in two numbers and a sentence:
+The gray **ARIMA vs. naive** panel, under the diagram, sums up the comparison in two numbers and a sentence:
 
 | Metric | Better when |
 | --- | --- |
@@ -138,6 +130,20 @@ The gray **ARIMA vs. naive** panel sums up the comparison in two numbers and a s
 | **Skill** | Above 0 (ARIMA beat the naive forecast) |
 
 Both are scale-free, so they can also be compared across tickers.
+
+### Forecast plot
+
+![The full-width forecast plot for one ticker (GLD): the actual close (blue), the ARIMA forecast (orange), and the naive forecast (gray) at each market close](images/dashboard-guide/07-forecast-plot.png)
+
+The plot runs the full width of the page, below the metrics. It shows, for each trading day, three lines:
+
+- **Actual:** the ticker's adjusted closing price.
+- **ARIMA forecast:** the model's forecast of that close, made using only data from before that day.
+- **Naive forecast:** the most recent observed close before that day.
+
+Where the forecast lines stay closer to the actual line, the forecasts were more accurate. Every day except the last has an actual close, so those forecasts can be checked. The **last point** is the forecast for the next trading day, which has not happened yet, so it has no actual close.
+
+Hover over an ARIMA point to see the model behind that day's forecast. The model is refit every day, so its settings can change from one day to the next.
 
 The collapsed **Reading the accuracy metrics, walk-forward ARIMA, naive forecasting, and out-of-sample evaluation...** accordion below the plot gives the training and scoring windows for the selected date. For how the metrics are calculated, see the [Methods and Results](https://akey7.github.io/posts/aliciadata-finance/) document.
 
