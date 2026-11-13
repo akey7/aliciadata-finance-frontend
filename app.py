@@ -2410,9 +2410,9 @@ class FSFinance:
             # Empty unless the forecasts cannot be loaded. The date is not
             # repeated here; the date dropdown at the top shows it.
             timeseries_status_md = gr.Markdown("")
-            # A row with the ticker, the accuracy table, and a gray panel with
-            # the ARIMA-vs-naive summary (left half) beside the rolling
-            # estimation diagram (right half); then the plot on its own
+            # A row with the ticker and the accuracy table (left half) beside
+            # the rolling estimation diagram with a gray panel of the
+            # ARIMA-vs-naive summary under it (right half); then the plot on its own
             # full-width row; then the full-width accordion explaining how to
             # read the metrics and how the forecasts are made. On narrow
             # screens the diagram moves below the metrics.
@@ -2425,10 +2425,6 @@ class FSFinance:
                         visible=False,
                     )
                     metrics_md = gr.Markdown("", elem_classes=["metrics-table"])
-                    # Hidden when there is no summary (no metrics for this
-                    # date or ticker), so no empty gray panel shows.
-                    with gr.Column(variant="panel", visible=False) as summary_panel:
-                        metrics_summary_md = gr.Markdown("")
 
                 # Shown only when the date has forecasts, like the methods
                 # accordion below.
@@ -2436,6 +2432,11 @@ class FSFinance:
                     scale=1, min_width=HALF_COLUMN_MIN_WIDTH, visible=False
                 ) as forecast_diagram_column:
                     gr.HTML(diagram_html(FORECAST_DIAGRAM_FILE, FORECAST_DIAGRAM_ALT))
+                    # Under the diagram. Hidden when there is no summary (no
+                    # metrics for this date or ticker), so no empty gray
+                    # panel shows.
+                    with gr.Column(variant="panel", visible=False) as summary_panel:
+                        metrics_summary_md = gr.Markdown("")
 
             @gr.render(
                 inputs=[date_dropdown, marker_state, ticker_dropdown],

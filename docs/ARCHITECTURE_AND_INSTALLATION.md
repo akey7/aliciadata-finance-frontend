@@ -42,7 +42,8 @@ The backend does all the modeling and publishes its results; this app only lists
                                                   optimization diagram (static/), growth of $1
             ## Latest Optimization                frontier, random portfolios, weights
           # Timeseries Analysis      ticker and backend metrics beside the rolling
-                                     estimation diagram (static/); then the
+                                     estimation diagram (static/) and the ARIMA
+                                     vs. naive summary under it; then the
                                      actual, ARIMA, and naive plot, full width
           disclaimer, once at the bottom
             │
