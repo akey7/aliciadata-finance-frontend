@@ -38,7 +38,8 @@ The backend does all the modeling and publishes its results; this app only lists
           links to the docs          dashboard guide; methods and results
           date selector              date dropdown; individual assets accordion
           # Portfolio Optimization
-            ## Historical Performance Back Test   metric cards, growth of $1
+            ## Historical Performance Back Test   metric cards beside the rolling
+                                                  optimization diagram (static/), growth of $1
             ## Latest Optimization                frontier, random portfolios, weights
           # Timeseries Analysis      actual, ARIMA, and naive; backend metrics
           disclaimer, once at the bottom

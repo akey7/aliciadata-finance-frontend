@@ -1,6 +1,8 @@
 import datetime
+import html
 import os
 import threading
+import urllib.parse
 from dataclasses import dataclass
 import gradio as gr
 import numpy as np
@@ -157,6 +159,22 @@ BACKTEST_BASELINE_REBALANCING = (
     "**Rebalancing:** long-only (no short positions), fully invested (weights sum "
     "to 100%), weights split equally among tickers."
 )
+# Static diagram of the back test's rolling optimization, shown to the right
+# of the back test cards. A file in STATIC_FOLDER, drawn by the human.
+BACKTEST_DIAGRAM_FILE = "rolling_optimization.png"
+BACKTEST_DIAGRAM_ALT = (
+    "Diagram of the rolling back test: each optimization is fit on a window of "
+    "past trading days and then held out of sample for the following days, with "
+    "the window moving forward at each rebalance."
+)
+# 50% gray (128 of 255), for the border around the diagram.
+BACKTEST_DIAGRAM_BORDER_COLOR = "#808080"
+# Wide enough for the four back test cards to share one row in a half-width
+# column on most screens; long labels wrap inside the card.
+BACKTEST_CARD_MIN_WIDTH = 120
+# Below this width, a column of the back test row moves under the other
+# (the diagram goes below the cards on phones).
+BACKTEST_COLUMN_MIN_WIDTH = 320
 
 
 @dataclass(frozen=True)
@@ -910,6 +928,43 @@ def backtest_card_rows(metadata, constraints_md=""):
         (max_sharpe_heading, metadata.max_sharpe, "max-sharpe-card"),
         (baseline_heading, metadata.equal_weight, "baseline-card"),
     ]
+
+
+def static_file_url(filename):
+    """
+    Return the URL at which Gradio serves a file in STATIC_FOLDER, which
+    run() registers with gr.set_static_paths().
+
+    Parameters
+    ----------
+    filename : str
+        Name of a file directly in STATIC_FOLDER.
+
+    Returns
+    -------
+    str
+        A root-relative URL, `/gradio_api/file=<absolute path>`, with the
+        path percent-encoded.
+    """
+    path = os.path.join(STATIC_FOLDER, filename)
+    return f"/gradio_api/file={urllib.parse.quote(path)}"
+
+
+def backtest_diagram_html():
+    """
+    Generate the HTML of the rolling optimization diagram shown to the right
+    of the back test cards: the static image, scaled to its column's width,
+    with alt text and a 50% gray border (the backtest-diagram CSS class).
+
+    Returns
+    -------
+    str
+        One `<img>` element.
+    """
+    return (
+        f'<img class="backtest-diagram" src="{static_file_url(BACKTEST_DIAGRAM_FILE)}" '
+        f'alt="{html.escape(BACKTEST_DIAGRAM_ALT)}">'
+    )
 
 
 def backtest_growth_df(daily):
@@ -2095,7 +2150,8 @@ class FSFinance:
         # headings without making it a heading (the page title and the
         # section headings stay the only top-level headings), make the accordions' labels bold (its size
         # stays the default), and give the back test cards a large value (the
-        # last line, under its label) and each portfolio's colors.
+        # last line, under its label) and each portfolio's colors, and fit the
+        # rolling optimization diagram to its column with a 50% gray border.
         css = """
         .metrics-table table { width: 100% !important; }
         .metrics-table th { white-space: nowrap !important; }
@@ -2117,6 +2173,13 @@ class FSFinance:
         .max-sharpe-card p {{ color: white !important; }}
         .baseline-card {{ background: {BACKTEST_BASELINE_CARD_COLOR} !important; }}
         .baseline-card p {{ color: black !important; }}
+        .backtest-diagram {{
+            display: block;
+            width: 100%;
+            height: auto;
+            border: 2px solid {BACKTEST_DIAGRAM_BORDER_COLOR};
+            box-sizing: border-box;
+        }}
         """
         # Serve the page's static images directly from STATIC_FOLDER, without
         # copying them into Gradio's cache. Must be called before the Blocks
@@ -2201,22 +2264,34 @@ class FSFinance:
                     data.metadata.constraints if data.metadata is not None else None
                 )
                 if data.backtest_metadata is not None:
-                    for heading, metrics, card_class in backtest_card_rows(
-                        data.backtest_metadata,
-                        constraints_markdown(constraints, "Rebalance constraints"),
-                    ):
-                        gr.Markdown(heading)
-                        # Panels narrower than Gradio's default minimum, so
-                        # the three cards stay on one row on most screens.
-                        with gr.Row():
-                            for label, value in backtest_cards(metrics):
-                                with gr.Column(
-                                    variant="panel",
-                                    min_width=160,
-                                    elem_classes=["backtest-card", card_class],
-                                ):
-                                    gr.Markdown(f"{label}\n\n{value}")
-                    gr.Markdown(backtest_metrics_note_markdown(data.backtest_metadata))
+                    # Two columns: both portfolios' cards on the left, the
+                    # rolling optimization diagram on the right. On narrow
+                    # screens the diagram moves below the cards.
+                    with gr.Row(equal_height=False):
+                        with gr.Column(scale=1, min_width=BACKTEST_COLUMN_MIN_WIDTH):
+                            for heading, metrics, card_class in backtest_card_rows(
+                                data.backtest_metadata,
+                                constraints_markdown(
+                                    constraints, "Rebalance constraints"
+                                ),
+                            ):
+                                gr.Markdown(heading)
+                                # Panels narrower than Gradio's default
+                                # minimum, so the cards stay on one row in
+                                # the half-width column on most screens.
+                                with gr.Row():
+                                    for label, value in backtest_cards(metrics):
+                                        with gr.Column(
+                                            variant="panel",
+                                            min_width=BACKTEST_CARD_MIN_WIDTH,
+                                            elem_classes=["backtest-card", card_class],
+                                        ):
+                                            gr.Markdown(f"{label}\n\n{value}")
+                            gr.Markdown(
+                                backtest_metrics_note_markdown(data.backtest_metadata)
+                            )
+                        with gr.Column(scale=1, min_width=BACKTEST_COLUMN_MIN_WIDTH):
+                            gr.HTML(backtest_diagram_html())
                 else:
                     gr.Markdown(
                         f"**Back test results unavailable.** {data.backtest_metadata_error}"

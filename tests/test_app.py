@@ -49,6 +49,10 @@ from app import (
     DOCS_LINKS_MD,
     STATIC_FOLDER,
     BACKTEST_COLORS,
+    BACKTEST_DIAGRAM_BORDER_COLOR,
+    BACKTEST_DIAGRAM_FILE,
+    backtest_diagram_html,
+    static_file_url,
     BACKTEST_UNPUBLISHED,
     BACKTEST_VALUE_COLUMN,
     DISCLAIMER_MD,
@@ -954,6 +958,21 @@ def test_static_folder_is_the_repo_static_folder():
     assert os.path.isabs(STATIC_FOLDER)
     assert os.path.basename(STATIC_FOLDER) == "static"
     assert os.path.isdir(STATIC_FOLDER)
+
+
+def test_static_file_url_points_at_the_served_folder():
+    url = static_file_url("rolling_optimization.png")
+    assert url.startswith("/gradio_api/file=")
+    assert url.endswith("/static/rolling_optimization.png")
+
+
+def test_backtest_diagram_is_an_existing_static_image_with_alt_text():
+    assert os.path.isfile(os.path.join(STATIC_FOLDER, BACKTEST_DIAGRAM_FILE))
+    diagram = backtest_diagram_html()
+    assert diagram.startswith('<img class="backtest-diagram" ')
+    assert f'src="{static_file_url(BACKTEST_DIAGRAM_FILE)}"' in diagram
+    assert 'alt="Diagram of the rolling back test' in diagram
+    assert BACKTEST_DIAGRAM_BORDER_COLOR == "#808080"
 
 
 def test_backtest_assumptions_explain_volatility_only_when_shown():
