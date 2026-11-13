@@ -44,6 +44,11 @@ from data_loading import (
 )
 
 INPUT_FOLDER = "input"
+# Static images shown on the page, in the repo (and copied into the Docker
+# image) next to this file. An absolute path, so Gradio serves the folder
+# whatever the working directory; it serves files there at
+# /gradio_api/file=<absolute path to the file>.
+STATIC_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 # One bucket (DigitalOcean Space) holds two top-level folders (see the contract).
 # Named as in contract v45; the pre-v45 FSF_FRONT_END_* names are not read.
 BUCKET_NAME_ENV = "S3_BUCKET_NAME"
@@ -2082,6 +2087,7 @@ class FSFinance:
         that date's folder; changing the ticker redraws the time series plot. Plots
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
+        Images in STATIC_FOLDER are served as static files.
         """
         # Make the accuracy table fill its third of the row beside the plot
         # without breaking its column headers across lines, show the
@@ -2112,6 +2118,11 @@ class FSFinance:
         .baseline-card {{ background: {BACKTEST_BASELINE_CARD_COLOR} !important; }}
         .baseline-card p {{ color: black !important; }}
         """
+        # Serve the page's static images directly from STATIC_FOLDER, without
+        # copying them into Gradio's cache. Must be called before the Blocks
+        # are created. Only this folder is exposed, never input/ or the
+        # repo root.
+        gr.set_static_paths(paths=[STATIC_FOLDER])
         # Gradio 6 takes custom CSS in launch(), not in the Blocks constructor;
         # the browser tab title stays in the constructor and is the display
         # name (APP_TITLE).

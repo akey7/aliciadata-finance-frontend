@@ -164,7 +164,7 @@ The live dashboard, AliciaData Finance, is served at https://aliciadata.com by a
 
 ### Docker image
 
-The [`Dockerfile`](../Dockerfile) builds from `python:3.13.5-slim-bookworm`, copies in uv, installs the production dependencies from `uv.lock` with `uv sync --locked --no-dev --no-install-project`, and copies only `app.py`, `data_loading.py`, and `s3_downloader.py`. The app runs as a non-root user that can write only `input/`, which is a throwaway download cache inside the container (no volume is needed). Gradio listens on `0.0.0.0:7860` (set by `GRADIO_SERVER_NAME` and `GRADIO_SERVER_PORT`). [`.dockerignore`](../.dockerignore) keeps `.env`, `input/`, `.venv/`, the tests, the docs, and other development files out of the build.
+The [`Dockerfile`](../Dockerfile) builds from `python:3.13.5-slim-bookworm`, copies in uv, installs the production dependencies from `uv.lock` with `uv sync --locked --no-dev --no-install-project`, and copies only `app.py`, `data_loading.py`, `s3_downloader.py`, and the `static/` folder of images. The app runs as a non-root user that can write only `input/`, which is a throwaway download cache inside the container (no volume is needed). Gradio listens on `0.0.0.0:7860` (set by `GRADIO_SERVER_NAME` and `GRADIO_SERVER_PORT`). [`.dockerignore`](../.dockerignore) keeps `.env`, `input/`, `.venv/`, the tests, the docs, and other development files out of the build.
 
 ### Tests workflow
 
@@ -194,6 +194,8 @@ There is no automatic rollback. To roll back, redeploy an earlier deployment fro
 1. `input/`: Holds input data downloaded from backend, one folder per date: `input/YYYY-MM-DD/<file>`, one folder per date viewed. If it does not exist, `app.py` creates it before access. Files directly in `input/` (from app versions before the date folders) are no longer used and can be deleted.
 
 2. `tests/`: Unit tests for the data loaders (including the optional forecast columns, `all_forecasts_metadata.yml`, and the back test files), the available-date logic, bucket listing, and the app's text describing how forecasts are made. They build synthetic files in a temporary folder or use a fake S3 client, and never touch `input/` or the network. Run them from the repo root with `uv run pytest`.
+
+3. `static/`: Static images shown on the dashboard, committed to the repo and copied into the Docker image. `app.py` registers the folder with `gr.set_static_paths()`, so Gradio serves its files directly (at `/gradio_api/file=<absolute path>`) without copying them to its cache; no other folder is exposed. Use lowercase file names without spaces, because the production container's file system is case-sensitive.
 
 ### Scripts
 

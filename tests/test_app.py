@@ -10,6 +10,7 @@ back test's cards, plot data, and assumptions. No Gradio app is built, and
 nothing under input/ or the network is touched.
 """
 
+import os
 import warnings
 from types import SimpleNamespace
 
@@ -46,6 +47,7 @@ from app import (
     APP_TITLE,
     APP_TITLE_MD,
     DOCS_LINKS_MD,
+    STATIC_FOLDER,
     BACKTEST_COLORS,
     BACKTEST_UNPUBLISHED,
     BACKTEST_VALUE_COLUMN,
@@ -944,6 +946,14 @@ def test_docs_links_are_body_text_with_both_links():
     )
     # Normal text, not a heading.
     assert not DOCS_LINKS_MD.startswith("#")
+
+
+def test_static_folder_is_the_repo_static_folder():
+    # An absolute path next to app.py, so Gradio serves the same folder
+    # whatever the working directory, and the folder is in the repo.
+    assert os.path.isabs(STATIC_FOLDER)
+    assert os.path.basename(STATIC_FOLDER) == "static"
+    assert os.path.isdir(STATIC_FOLDER)
 
 
 def test_backtest_assumptions_explain_volatility_only_when_shown():
