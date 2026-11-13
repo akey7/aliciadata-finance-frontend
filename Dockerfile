@@ -22,6 +22,8 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --locked --no-dev --no-install-project
 
 COPY app.py data_loading.py s3_downloader.py ./
+# Static images shown on the page, served by Gradio from /app/static.
+COPY static/ ./static/
 
 # Run as a non-root user that can write only the download cache.
 RUN useradd --create-home appuser && mkdir input && chown appuser input

@@ -10,6 +10,7 @@ back test's cards, plot data, and assumptions. No Gradio app is built, and
 nothing under input/ or the network is touched.
 """
 
+import os
 import warnings
 from types import SimpleNamespace
 
@@ -46,7 +47,15 @@ from app import (
     APP_TITLE,
     APP_TITLE_MD,
     DOCS_LINKS_MD,
+    STATIC_FOLDER,
     BACKTEST_COLORS,
+    BACKTEST_DIAGRAM_ALT,
+    BACKTEST_DIAGRAM_FILE,
+    DIAGRAM_BORDER_COLOR,
+    FORECAST_DIAGRAM_ALT,
+    FORECAST_DIAGRAM_FILE,
+    diagram_html,
+    static_file_url,
     BACKTEST_UNPUBLISHED,
     BACKTEST_VALUE_COLUMN,
     DISCLAIMER_MD,
@@ -944,6 +953,39 @@ def test_docs_links_are_body_text_with_both_links():
     )
     # Normal text, not a heading.
     assert not DOCS_LINKS_MD.startswith("#")
+
+
+def test_static_folder_is_the_repo_static_folder():
+    # An absolute path next to app.py, so Gradio serves the same folder
+    # whatever the working directory, and the folder is in the repo.
+    assert os.path.isabs(STATIC_FOLDER)
+    assert os.path.basename(STATIC_FOLDER) == "static"
+    assert os.path.isdir(STATIC_FOLDER)
+
+
+def test_static_file_url_points_at_the_served_folder():
+    url = static_file_url("rolling_optimization.png")
+    assert url.startswith("/gradio_api/file=")
+    assert url.endswith("/static/rolling_optimization.png")
+
+
+@pytest.mark.parametrize(
+    "filename, alt, alt_start",
+    [
+        (BACKTEST_DIAGRAM_FILE, BACKTEST_DIAGRAM_ALT, "Diagram of the rolling back test"),
+        (FORECAST_DIAGRAM_FILE, FORECAST_DIAGRAM_ALT, "Diagram of the rolling forecasts"),
+    ],
+)
+def test_diagrams_are_existing_static_images_with_alt_text(filename, alt, alt_start):
+    assert os.path.isfile(os.path.join(STATIC_FOLDER, filename))
+    diagram = diagram_html(filename, alt)
+    assert diagram.startswith('<img class="static-diagram" ')
+    assert f'src="{static_file_url(filename)}"' in diagram
+    assert f'alt="{alt_start}' in diagram
+
+
+def test_diagram_border_is_50_percent_gray():
+    assert DIAGRAM_BORDER_COLOR == "#808080"
 
 
 def test_backtest_assumptions_explain_volatility_only_when_shown():
