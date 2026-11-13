@@ -41,7 +41,9 @@ The backend does all the modeling and publishes its results; this app only lists
             ## Historical Performance Back Test   metric cards beside the rolling
                                                   optimization diagram (static/), growth of $1
             ## Latest Optimization                frontier, random portfolios, weights
-          # Timeseries Analysis      actual, ARIMA, and naive; backend metrics
+          # Timeseries Analysis      ticker and backend metrics beside the rolling
+                                     estimation diagram (static/); then the
+                                     actual, ARIMA, and naive plot, full width
           disclaimer, once at the bottom
             │
             ▼

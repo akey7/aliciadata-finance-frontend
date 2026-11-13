@@ -49,9 +49,12 @@ from app import (
     DOCS_LINKS_MD,
     STATIC_FOLDER,
     BACKTEST_COLORS,
-    BACKTEST_DIAGRAM_BORDER_COLOR,
+    BACKTEST_DIAGRAM_ALT,
     BACKTEST_DIAGRAM_FILE,
-    backtest_diagram_html,
+    DIAGRAM_BORDER_COLOR,
+    FORECAST_DIAGRAM_ALT,
+    FORECAST_DIAGRAM_FILE,
+    diagram_html,
     static_file_url,
     BACKTEST_UNPUBLISHED,
     BACKTEST_VALUE_COLUMN,
@@ -966,13 +969,23 @@ def test_static_file_url_points_at_the_served_folder():
     assert url.endswith("/static/rolling_optimization.png")
 
 
-def test_backtest_diagram_is_an_existing_static_image_with_alt_text():
-    assert os.path.isfile(os.path.join(STATIC_FOLDER, BACKTEST_DIAGRAM_FILE))
-    diagram = backtest_diagram_html()
-    assert diagram.startswith('<img class="backtest-diagram" ')
-    assert f'src="{static_file_url(BACKTEST_DIAGRAM_FILE)}"' in diagram
-    assert 'alt="Diagram of the rolling back test' in diagram
-    assert BACKTEST_DIAGRAM_BORDER_COLOR == "#808080"
+@pytest.mark.parametrize(
+    "filename, alt, alt_start",
+    [
+        (BACKTEST_DIAGRAM_FILE, BACKTEST_DIAGRAM_ALT, "Diagram of the rolling back test"),
+        (FORECAST_DIAGRAM_FILE, FORECAST_DIAGRAM_ALT, "Diagram of the rolling forecasts"),
+    ],
+)
+def test_diagrams_are_existing_static_images_with_alt_text(filename, alt, alt_start):
+    assert os.path.isfile(os.path.join(STATIC_FOLDER, filename))
+    diagram = diagram_html(filename, alt)
+    assert diagram.startswith('<img class="static-diagram" ')
+    assert f'src="{static_file_url(filename)}"' in diagram
+    assert f'alt="{alt_start}' in diagram
+
+
+def test_diagram_border_is_50_percent_gray():
+    assert DIAGRAM_BORDER_COLOR == "#808080"
 
 
 def test_backtest_assumptions_explain_volatility_only_when_shown():

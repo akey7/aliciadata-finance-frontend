@@ -159,22 +159,30 @@ BACKTEST_BASELINE_REBALANCING = (
     "**Rebalancing:** long-only (no short positions), fully invested (weights sum "
     "to 100%), weights split equally among tickers."
 )
-# Static diagram of the back test's rolling optimization, shown to the right
-# of the back test cards. A file in STATIC_FOLDER, drawn by the human.
+# Static diagrams, files in STATIC_FOLDER drawn by the human. Each fills the
+# right half of a row: the back test's rolling optimization beside the back
+# test cards, and the forecasts' rolling estimation beside the accuracy
+# metrics.
 BACKTEST_DIAGRAM_FILE = "rolling_optimization.png"
 BACKTEST_DIAGRAM_ALT = (
     "Diagram of the rolling back test: each optimization is fit on a window of "
     "past trading days and then held out of sample for the following days, with "
     "the window moving forward at each rebalance."
 )
-# 50% gray (128 of 255), for the border around the diagram.
-BACKTEST_DIAGRAM_BORDER_COLOR = "#808080"
+FORECAST_DIAGRAM_FILE = "rolling_estimation.png"
+FORECAST_DIAGRAM_ALT = (
+    "Diagram of the rolling forecasts: each model is fit on a window of past "
+    "trading days and scored out of sample on the days after it, with the window "
+    "moving forward for each fit."
+)
+# 50% gray (128 of 255), for the border around the diagrams.
+DIAGRAM_BORDER_COLOR = "#808080"
 # Wide enough for the four back test cards to share one row in a half-width
 # column on most screens; long labels wrap inside the card.
 BACKTEST_CARD_MIN_WIDTH = 120
-# Below this width, a column of the back test row moves under the other
-# (the diagram goes below the cards on phones).
-BACKTEST_COLUMN_MIN_WIDTH = 320
+# Below this width, a half-width column moves under the other one (each
+# diagram goes below its cards or metrics on phones).
+HALF_COLUMN_MIN_WIDTH = 320
 
 
 @dataclass(frozen=True)
@@ -950,11 +958,19 @@ def static_file_url(filename):
     return f"/gradio_api/file={urllib.parse.quote(path)}"
 
 
-def backtest_diagram_html():
+def diagram_html(filename, alt):
     """
-    Generate the HTML of the rolling optimization diagram shown to the right
-    of the back test cards: the static image, scaled to its column's width,
-    with alt text and a 50% gray border (the backtest-diagram CSS class).
+    Generate the HTML of a static diagram: the image from STATIC_FOLDER,
+    scaled to its column's width, with alt text and a 50% gray border (the
+    static-diagram CSS class).
+
+    Parameters
+    ----------
+    filename : str
+        Name of the image file in STATIC_FOLDER.
+
+    alt : str
+        Text describing the image for screen readers.
 
     Returns
     -------
@@ -962,8 +978,8 @@ def backtest_diagram_html():
         One `<img>` element.
     """
     return (
-        f'<img class="backtest-diagram" src="{static_file_url(BACKTEST_DIAGRAM_FILE)}" '
-        f'alt="{html.escape(BACKTEST_DIAGRAM_ALT)}">'
+        f'<img class="static-diagram" src="{static_file_url(filename)}" '
+        f'alt="{html.escape(alt)}">'
     )
 
 
@@ -2144,14 +2160,14 @@ class FSFinance:
         updating the value of an existing gr.LinePlot left the chart empty.
         Images in STATIC_FOLDER are served as static files.
         """
-        # Make the accuracy table fill its third of the row beside the plot
+        # Make the accuracy table fill its half of the row beside the diagram
         # without breaking its column headers across lines, show the
         # date-selection title at the size of the "#" section
         # headings without making it a heading (the page title and the
         # section headings stay the only top-level headings), make the accordions' labels bold (its size
         # stays the default), and give the back test cards a large value (the
         # last line, under its label) and each portfolio's colors, and fit the
-        # rolling optimization diagram to its column with a 50% gray border.
+        # static diagrams to their columns with a 50% gray border.
         css = """
         .metrics-table table { width: 100% !important; }
         .metrics-table th { white-space: nowrap !important; }
@@ -2173,11 +2189,11 @@ class FSFinance:
         .max-sharpe-card p {{ color: white !important; }}
         .baseline-card {{ background: {BACKTEST_BASELINE_CARD_COLOR} !important; }}
         .baseline-card p {{ color: black !important; }}
-        .backtest-diagram {{
+        .static-diagram {{
             display: block;
             width: 100%;
             height: auto;
-            border: 2px solid {BACKTEST_DIAGRAM_BORDER_COLOR};
+            border: 2px solid {DIAGRAM_BORDER_COLOR};
             box-sizing: border-box;
         }}
         """
@@ -2268,7 +2284,7 @@ class FSFinance:
                     # rolling optimization diagram on the right. On narrow
                     # screens the diagram moves below the cards.
                     with gr.Row(equal_height=False):
-                        with gr.Column(scale=1, min_width=BACKTEST_COLUMN_MIN_WIDTH):
+                        with gr.Column(scale=1, min_width=HALF_COLUMN_MIN_WIDTH):
                             for heading, metrics, card_class in backtest_card_rows(
                                 data.backtest_metadata,
                                 constraints_markdown(
@@ -2290,8 +2306,10 @@ class FSFinance:
                             gr.Markdown(
                                 backtest_metrics_note_markdown(data.backtest_metadata)
                             )
-                        with gr.Column(scale=1, min_width=BACKTEST_COLUMN_MIN_WIDTH):
-                            gr.HTML(backtest_diagram_html())
+                        with gr.Column(scale=1, min_width=HALF_COLUMN_MIN_WIDTH):
+                            gr.HTML(
+                                diagram_html(BACKTEST_DIAGRAM_FILE, BACKTEST_DIAGRAM_ALT)
+                            )
                 else:
                     gr.Markdown(
                         f"**Back test results unavailable.** {data.backtest_metadata_error}"
@@ -2392,12 +2410,14 @@ class FSFinance:
             # Empty unless the forecasts cannot be loaded. The date is not
             # repeated here; the date dropdown at the top shows it.
             timeseries_status_md = gr.Markdown("")
-            # The ticker, the accuracy table, and a gray panel with the
-            # ARIMA-vs-naive summary (left third) beside the plot (right two
-            # thirds); then the full-width accordion explaining how to read
-            # the metrics and how the forecasts are made.
-            with gr.Row():
-                with gr.Column(scale=1):
+            # A row with the ticker, the accuracy table, and a gray panel with
+            # the ARIMA-vs-naive summary (left half) beside the rolling
+            # estimation diagram (right half); then the plot on its own
+            # full-width row; then the full-width accordion explaining how to
+            # read the metrics and how the forecasts are made. On narrow
+            # screens the diagram moves below the metrics.
+            with gr.Row(equal_height=False):
+                with gr.Column(scale=1, min_width=HALF_COLUMN_MIN_WIDTH):
                     ticker_dropdown = gr.Dropdown(
                         choices=[],
                         value=None,
@@ -2410,18 +2430,23 @@ class FSFinance:
                     with gr.Column(variant="panel", visible=False) as summary_panel:
                         metrics_summary_md = gr.Markdown("")
 
-                with gr.Column(scale=2):
+                # Shown only when the date has forecasts, like the methods
+                # accordion below.
+                with gr.Column(
+                    scale=1, min_width=HALF_COLUMN_MIN_WIDTH, visible=False
+                ) as forecast_diagram_column:
+                    gr.HTML(diagram_html(FORECAST_DIAGRAM_FILE, FORECAST_DIAGRAM_ALT))
 
-                    @gr.render(
-                        inputs=[date_dropdown, marker_state, ticker_dropdown],
-                        triggers=[date_dropdown.change, ticker_dropdown.change],
-                    )
-                    def render_timeseries_plot(date, markers, ticker):
-                        data = self.selected_data(date, markers)
-                        if data is None or data.forecasts is None:
-                            return
-                        ticker = self.resolve_ticker(data.forecasts, ticker)
-                        self.timeseries_plot(data.forecasts, ticker)
+            @gr.render(
+                inputs=[date_dropdown, marker_state, ticker_dropdown],
+                triggers=[date_dropdown.change, ticker_dropdown.change],
+            )
+            def render_timeseries_plot(date, markers, ticker):
+                data = self.selected_data(date, markers)
+                if data is None or data.forecasts is None:
+                    return
+                ticker = self.resolve_ticker(data.forecasts, ticker)
+                self.timeseries_plot(data.forecasts, ticker)
 
             # The metrics and methods text is collapsed by default, like the
             # portfolio assumptions accordion.
@@ -2452,9 +2477,11 @@ class FSFinance:
             def on_date_change(date, markers, ticker):
                 data = self.selected_data(date, markers)
                 hidden_tickers = gr.update(choices=[], value=None, visible=False)
+                # The methods accordion and the rolling estimation diagram
+                # are shown only when the date has forecasts.
                 hidden_methods = gr.update(visible=False)
                 if data is None:
-                    return "", hidden_tickers, "", "", hidden_methods
+                    return "", hidden_tickers, "", "", hidden_methods, hidden_methods
                 warning_md = self.date_warning_markdown(data)
                 if data.forecasts is None:
                     # Shown under the heading, not in the collapsed accordion.
@@ -2463,6 +2490,7 @@ class FSFinance:
                         hidden_tickers,
                         f"**Forecasts unavailable.** {data.forecasts_error}",
                         "",
+                        hidden_methods,
                         hidden_methods,
                     )
                 tickers = forecast_tickers(data.forecasts.columns)
@@ -2477,6 +2505,7 @@ class FSFinance:
                     self.timeseries_intro_markdown(
                         data.forecasts, data.forecasts_metadata
                     ),
+                    gr.update(visible=True),
                     gr.update(visible=True),
                 )
 
@@ -2503,6 +2532,7 @@ class FSFinance:
                     timeseries_status_md,
                     timeseries_intro_md,
                     methods_accordion,
+                    forecast_diagram_column,
                 ],
             )
             gr.on(
