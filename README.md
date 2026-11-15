@@ -19,7 +19,7 @@ This architecture supports a lightweight deployment while preserving analytical 
 
 ## Documentation
 
-- **[Dashboard Guide](docs/DASHBOARD_GUIDE.md):** Visualizations, interactive features, quantitative interpretation, and limitations.
+- **[Dashboard Guide](docs/DASHBOARD_GUIDE.md):** What each control, plot, and table shows, how each model compares with its naive baseline, and which direction is better for each metric.
 - **[Architecture and Installation](docs/ARCHITECTURE_AND_INSTALLATION.md):** Object storage and data flow, local installation, configuration, execution, testing, and deployment.
 - **[Interface Contract](docs/INTERFACE_CONTRACT.md):** Versioned data formats, schema definitions, compatibility requirements, and backend/frontend integration.
 
@@ -29,7 +29,7 @@ This architecture supports a lightweight deployment while preserving analytical 
 
 The backend contains the numerical modeling, walk-forward evaluation, constrained portfolio optimization, Monte Carlo simulation, and result-generation pipeline.
 
-For mathematical methods and evaluation results, see the backend's [Methods and Results documentation](https://github.com/akey7/aliciadata-finance-backend/blob/main/docs/METHODS_AND_RESULTS.md).
+For mathematical methods, evaluation results, and limitations, see the [Methods and Results](https://akey7.github.io/posts/aliciadata-finance/) document.
 
 ---
 
