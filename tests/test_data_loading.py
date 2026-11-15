@@ -346,6 +346,40 @@ def test_metadata_asset_ticker_with_dot(tmp_path):
     assert metadata.assets["BRK.B"].risk == 16.0
 
 
+def test_metadata_loads_v48_computed_at_and_contract_version(tmp_path):
+    document = v7_metadata()
+    document["computed_at"] = "2026-11-14T12:00:00Z"
+    document["contract_version"] = 48
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", document))
+    assert metadata.computed_at == "2026-11-14T12:00:00Z"
+    assert metadata.contract_version == 48
+
+
+def test_metadata_unquoted_computed_at_reads_as_the_contract_form(tmp_path):
+    # An unquoted ISO timestamp loads as a datetime; it is turned back into
+    # the contract's UTC string.
+    path = tmp_path / "m.yml"
+    write_yaml(path, v7_metadata())
+    with open(path, "a", encoding="utf-8") as file:
+        file.write("computed_at: 2026-11-14T12:00:00Z\n")
+    metadata = load_optimization_metadata(str(path))
+    assert metadata.computed_at == "2026-11-14T12:00:00Z"
+
+
+def test_metadata_v48_keys_absent_before_v48(tmp_path):
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", v7_metadata()))
+    assert metadata.computed_at is None
+    assert metadata.contract_version is None
+
+
+@pytest.mark.parametrize("bad_version", ["forty-eight", 48.5, True, [48]])
+def test_metadata_ignores_malformed_contract_version(tmp_path, bad_version):
+    document = v7_metadata()
+    document["contract_version"] = bad_version
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", document))
+    assert metadata.contract_version is None
+
+
 def test_clean_weights_zeroes_noise_only():
     cleaned = clean_weights(
         {"FXE": 3.055998668072217e-14, "XLE": 39.99999999999994, "NEG": -1e-9}

@@ -3,6 +3,7 @@ import html
 import os
 import threading
 import urllib.parse
+from collections import OrderedDict
 from dataclasses import dataclass
 import gradio as gr
 import numpy as np
@@ -24,6 +25,7 @@ from data_loading import (
     OPTIMIZATION_METADATA_KEY,
     ORDER_SUFFIXES,
     PLOT_DATA_KEY,
+    UTC_TIMESTAMP_FORMAT,
     BacktestMetadata,
     DataLoadError,
     ForecastsMetadata,
@@ -46,6 +48,12 @@ from data_loading import (
 )
 
 INPUT_FOLDER = "input"
+# Most dates kept in the in-memory cache of loaded dates, shared by all
+# visitors. Each date holds its random portfolios, forecasts, and back test,
+# and backfilled history means visitors can open hundreds of dates, so the
+# least recently used dates are dropped (and downloaded again if reopened)
+# to keep memory use bounded on the small VPS.
+MAX_CACHED_DATES = 24
 # Static images shown on the page, in the repo (and copied into the Docker
 # image) next to this file. An absolute path, so Gradio serves the folder
 # whatever the working directory; it serves files there at
@@ -983,6 +991,71 @@ def diagram_html(filename, alt):
     )
 
 
+def computed_at_label(computed_at):
+    """
+    Format a contract v48 `computed_at` timestamp for display.
+
+    Parameters
+    ----------
+    computed_at : str
+        UTC timestamp as `YYYY-MM-DDTHH:MM:SSZ`.
+
+    Returns
+    -------
+    str
+        Such as "2026-11-14 12:00 UTC", or the value unchanged if it is not
+        in the contract's format.
+    """
+    try:
+        parsed = datetime.datetime.strptime(computed_at, UTC_TIMESTAMP_FORMAT)
+    except ValueError:
+        return computed_at
+    return parsed.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def date_computed_markdown(metadata):
+    """
+    Generate the text of the "About this date's data" accordion under the
+    date selector: when the backend computed the selected date, the
+    contract version its files were written under, and how a date computed
+    after it (such as a backfilled date, contract v47) relates to the data
+    available on the date itself. Both values come from
+    optimization_metadata.yml; the three metadata files of one run share
+    them. The investment-advice disclaimer is not repeated here.
+
+    Parameters
+    ----------
+    metadata : OptimizationMetadata | None
+        Loaded optimization metadata of the selected date.
+
+    Returns
+    -------
+    str
+        Markdown, or an empty string when the date's files record neither
+        value (files written before contract v48), so no accordion is shown.
+    """
+    if metadata is None or (
+        metadata.computed_at is None and metadata.contract_version is None
+    ):
+        return ""
+    facts = []
+    if metadata.computed_at is not None:
+        facts.append(f"**Computed:** {computed_at_label(metadata.computed_at)}")
+    if metadata.contract_version is not None:
+        facts.append(f"**Data format:** interface contract v{metadata.contract_version}")
+    return (os.linesep * 2).join(
+        [
+            "  ".join(fact + "." for fact in facts),
+            f"Every result for {metadata.date_to} uses only prices up to that trading "
+            "day, as if the data ended then. A date can be computed after it, for "
+            "example when past dates are filled in all at once. Its results then use "
+            "the methods and settings current when it was computed, and prices as "
+            "adjusted at that time (for example, for a later stock split), which can "
+            "differ slightly from the prices available on the date itself.",
+        ]
+    )
+
+
 def backtest_growth_df(daily):
     """
     Pivot the back test's wealth columns into a long format suitable for
@@ -1061,9 +1134,9 @@ def backtest_assumptions_markdown(metadata):
     contract's suggested wording (v46), with the window lengths read from
     the file, then its notes on reading the results. A note on the fallback
     is added only when a rebalance used it. The text holds for any back
-    test length, so it suits both the year-long back tests of contract v46+
-    dates and the short ones of older dates; nothing assumes a length or
-    that the back test covers the same days as the forecast metrics. The
+    test length (every number is read from the file); nothing assumes a
+    length or that the back test covers the same days as the forecast
+    metrics. The
     investment-advice disclaimer is not repeated here; it is shown once, at
     the bottom of the page.
 
@@ -1137,9 +1210,7 @@ def backtest_assumptions_markdown(metadata):
         "the back test.",
         "- **Comparing dates:** consecutive dates overlap almost entirely, and the "
         "settings can differ between them. Compare the number of trading days and the "
-        "rebalance schedule before comparing metrics across dates. In particular, "
-        "dates published before interface contract v46 have much shorter back tests, "
-        "the same length as their forecast evaluation.",
+        "rebalance schedule before comparing metrics across dates.",
         "- **Not the forecasts' period:** the back test and the forecast accuracy "
         "metrics under Timeseries Analysis both end on the selected date, but they "
         "generally start on different dates and cover different numbers of trading "
@@ -1421,8 +1492,9 @@ class FSFinance:
         except (BotoCoreError, ValueError) as error:
             print(f"Could not create the S3 client: {type(error).__name__}")
             self.downloader = None
-        # Date -> (marker ETags, DateData). See date_data().
-        self._cache = {}
+        # Date -> (marker ETags, DateData), least recently used first, at
+        # most MAX_CACHED_DATES entries. See date_data().
+        self._cache = OrderedDict()
         self._cache_lock = threading.Lock()
 
     def list_dates(self):
@@ -1593,10 +1665,13 @@ class FSFinance:
 
         A cached date is reused only while the ETags of its marker files
         (and of the optional forecasts metadata and back test files) are
-        unchanged, so a same-day backend re-run is downloaded again. Only
+        unchanged, so a backend re-run of that date is downloaded again. Only
         complete dates are cached, so a failed download is retried on the
-        next request. The lock makes concurrent requests for a date download
-        it once and never read a half-written local file.
+        next request. The cache holds at most MAX_CACHED_DATES dates: using
+        a date makes it the most recently used, and adding one beyond the
+        limit drops the least recently used. The lock makes concurrent
+        requests for a date download it once and never read a half-written
+        local file.
 
         Parameters
         ----------
@@ -1616,6 +1691,7 @@ class FSFinance:
         with self._cache_lock:
             cached = self._cache.get(date)
             if cached is not None and cached[0] == tuple(marker_etags):
+                self._cache.move_to_end(date)
                 return cached[1]
             data = self.load_date(
                 date,
@@ -1626,6 +1702,9 @@ class FSFinance:
             )
             if data.complete():
                 self._cache[date] = (tuple(marker_etags), data)
+                self._cache.move_to_end(date)
+                while len(self._cache) > MAX_CACHED_DATES:
+                    self._cache.popitem(last=False)
             return data
 
     def selected_data(self, date, markers):
@@ -2224,36 +2303,47 @@ class FSFinance:
             listing_md = gr.Markdown("")
             date_warning_md = gr.Markdown("")
 
-            # Each ticker held on its own (contract v32), under the date
-            # selector because it concerns both sections. A table rather
-            # than points on the portfolio plot: under a binding weight cap
-            # single tickers are not feasible portfolios. Numeric columns, so
-            # clicking a header sorts by value. Collapsed and styled like the
-            # other accordions; its label serves as the heading. Absent for
-            # dates before v32 or without optimization metadata.
+            # Two collapsed accordions under the date selector, because they
+            # concern both sections, styled like the other accordions (their
+            # labels serve as headings):
+            # - Each ticker held on its own (contract v32). A table rather
+            #   than points on the portfolio plot: under a binding weight cap
+            #   single tickers are not feasible portfolios. Numeric columns,
+            #   so clicking a header sorts by value. Absent for dates before
+            #   v32 or without optimization metadata.
+            # - When the date was computed and under which contract version
+            #   (contract v48), with how a date computed after it relates to
+            #   its data. Absent for files written before v48.
             @gr.render(
                 inputs=[date_dropdown, marker_state],
                 triggers=[date_dropdown.change],
             )
-            def render_assets(date, markers):
+            def render_date_details(date, markers):
                 data = self.selected_data(date, markers)
                 if data is None or data.metadata is None:
                     return
                 assets = assets_df(data.metadata)
-                if assets is None:
-                    return
-                with gr.Accordion(
-                    "Information about individual assets...",
-                    open=False,
-                    elem_classes=["methods-accordion"],
-                ):
-                    gr.Markdown(assets_caption_markdown(data.metadata.constraints))
-                    gr.DataFrame(
-                        value=assets,
-                        datatype=["str", "number", "number"],
-                        row_count=len(assets),
-                        interactive=False,
-                    )
+                if assets is not None:
+                    with gr.Accordion(
+                        "Information about individual assets...",
+                        open=False,
+                        elem_classes=["methods-accordion"],
+                    ):
+                        gr.Markdown(assets_caption_markdown(data.metadata.constraints))
+                        gr.DataFrame(
+                            value=assets,
+                            datatype=["str", "number", "number"],
+                            row_count=len(assets),
+                            interactive=False,
+                        )
+                computed_md = date_computed_markdown(data.metadata)
+                if computed_md:
+                    with gr.Accordion(
+                        "About this date's data...",
+                        open=False,
+                        elem_classes=["methods-accordion"],
+                    ):
+                        gr.Markdown(computed_md)
 
             # Both sections are stacked on one page: Portfolio Optimization on
             # top, Timeseries Analysis below. Inner headings start at ## so

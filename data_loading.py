@@ -28,7 +28,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 46
+CONTRACT_VERSION = 48
+# Format of `computed_at` in the metadata files (contract v48), in UTC.
+UTC_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
@@ -154,11 +156,16 @@ class OptimizationMetadata:
     the file) and `min_var_weights` to the minimum variance portfolio
     (contract v28+, None for older files).
 
-    The last four fields come from optional contract v32 sections and are
-    None for older files (or when a section is malformed): the maximum
-    return portfolio, each ticker held on its own (`assets`, ticker to
-    annualized return and risk), the constraints, and the random portfolio
-    statistics.
+    Four fields come from optional contract v32 sections and are None for
+    older files (or when a section is malformed): the maximum return
+    portfolio, each ticker held on its own (`assets`, ticker to annualized
+    return and risk), the constraints, and the random portfolio statistics.
+
+    computed_at and contract_version (contract v48, None for older files or
+    when malformed) say when the backend run that wrote the date folder
+    started, as `YYYY-MM-DDTHH:MM:SSZ` in UTC, and which contract version it
+    was written under. A date folder can be computed long after its date
+    (contract v47), for example when past dates are backfilled.
     """
 
     date_from: str
@@ -177,6 +184,8 @@ class OptimizationMetadata:
     assets: dict[str, PortfolioPoint] | None = None
     constraints: PortfolioConstraints | None = None
     random_portfolios: RandomPortfolioStats | None = None
+    computed_at: str | None = None
+    contract_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -723,7 +732,8 @@ def load_optimization_metadata(path: str) -> OptimizationMetadata:
     with a console message so the rest of the file can still be shown. The
     four contract v32 sections (`max_return_portfolio`, `assets`,
     `constraints`, `random_portfolios`) are optional in the same way, each
-    on its own.
+    on its own, and so are the contract v48 keys `computed_at` and
+    `contract_version` (None when absent or malformed).
 
     Parameters
     ----------
@@ -795,6 +805,8 @@ def load_optimization_metadata(path: str) -> OptimizationMetadata:
         random_portfolios=_optional_section(
             document, "random_portfolios", _parse_random_portfolios
         ),
+        computed_at=_optional_utc_timestamp(document, "computed_at"),
+        contract_version=_optional_int(document, "contract_version"),
     )
 
 
@@ -1107,6 +1119,72 @@ def load_forecasts(path: str) -> pd.DataFrame:
             _clean_optional_column(df, f"{ticker}{suffix}", whole_numbers=True)
     df.index.name = "pred_date"
     return df.sort_index()
+
+
+def _optional_utc_timestamp(node, key: str) -> str | None:
+    """
+    Return a UTC timestamp value (contract v48 `computed_at`) as a string
+    in the contract's `YYYY-MM-DDTHH:MM:SSZ` form, or None if missing or
+    null.
+
+    The backend writes it as a string, but an unquoted ISO timestamp is
+    loaded by YAML as a datetime; that is converted back to the contract's
+    form (in UTC) so both read the same. Any other value is returned as a
+    string, unchanged.
+
+    Parameters
+    ----------
+    node : Any
+        A parsed YAML mapping (anything else counts as missing).
+
+    key : str
+        Key to look up.
+
+    Returns
+    -------
+    str | None
+        The timestamp as a string, or None.
+    """
+    if not isinstance(node, dict) or node.get(key) is None:
+        return None
+    value = node[key]
+    if isinstance(value, datetime.datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        return value.strftime(UTC_TIMESTAMP_FORMAT)
+    return str(value)
+
+
+def _optional_int(node, key: str) -> int | None:
+    """
+    Return a mapping value as a whole number, or None if it is missing,
+    null, or not a whole number (booleans count as not a number).
+
+    Parameters
+    ----------
+    node : Any
+        A parsed YAML mapping (anything else counts as missing).
+
+    key : str
+        Key to look up.
+
+    Returns
+    -------
+    int | None
+        The value as an int, or None.
+    """
+    if not isinstance(node, dict):
+        return None
+    value = node.get(key)
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
 
 
 def _optional_str(node, key: str) -> str | None:

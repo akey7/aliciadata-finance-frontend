@@ -17,7 +17,7 @@ This guide deliberately stays brief on methods. For how the results are computed
 
 The dashboard is a single page, read from top to bottom:
 
-1. **AliciaData Finance:** links to this guide and to the Methods and Results document, then the date selector and the information about individual assets.
+1. **AliciaData Finance:** links to this guide and to the Methods and Results document, then the date selector, the information about individual assets, and when the selected date was computed.
 2. **Portfolio Optimization:**
    - **Historical Performance Back Test:** how an optimized portfolio did over about the last year of trading days, compared with an equal-weight baseline.
    - **Latest Optimization:** the optimized portfolios estimated from the most recent data.
@@ -33,9 +33,9 @@ The line under the title links to this guide and to the [Methods and Results](ht
 
 The **Data as of (NYSE trading day)** dropdown selects which backend run the whole page shows. Each entry is the last trading day of price data in that run, shown with its weekday, such as `2026-11-06 (Fri)`. The newest date is selected when the page opens, and older dates stay available for comparison.
 
-Changing the date reloads **both** sections from that date's results, so everything on the page always comes from the same run. The backend is run by hand, so dates are not consecutive and the newest date may be a few days old. Check this dropdown to see how current the data is.
+Changing the date reloads **both** sections from that date's results, so everything on the page always comes from the same run. The dates are NYSE trading days, so weekends and market holidays are skipped. New dates are added by hand, so the newest date may be a few days old. Check this dropdown to see how current the data is.
 
-Older dates were produced by earlier versions of the backend, so some of them lack newer parts of the page, such as the back test or the accuracy metrics. In those places, the page shows a short message instead. Older dates also have much shorter back tests, about three months instead of about a year, so check the back test's dates before comparing its results across dates.
+Every date's results use only the prices up to that day, as if the data ended then, so you can step back through the dates to see how the results changed over time. The collapsed **About this date's data...** accordion under the dropdown says when the selected date was computed.
 
 ### Information about individual assets
 
