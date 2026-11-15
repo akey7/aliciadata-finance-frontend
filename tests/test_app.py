@@ -11,6 +11,7 @@ nothing under input/ or the network is touched.
 """
 
 import os
+import urllib.parse
 import warnings
 from types import SimpleNamespace
 
@@ -868,8 +869,10 @@ def test_backtest_growth_df():
     ]
 
 
-# Gradio 6.30.0's LinePlot makes this call itself for any datetime column.
+# Gradio 6.30.0's LinePlot makes these pandas calls itself for any datetime
+# column.
 @pytest.mark.filterwarnings("ignore:is_categorical_dtype:DeprecationWarning")
+@pytest.mark.filterwarnings("ignore:The default formatting of datetime")
 def test_backtest_plot_uses_data_limits_and_fixed_colors():
     chart = backtest_plot(backtest_daily())
     assert chart.color_map == BACKTEST_COLORS
@@ -1066,9 +1069,13 @@ def test_static_folder_is_the_repo_static_folder():
 
 
 def test_static_file_url_points_at_the_served_folder():
+    prefix = "/gradio_api/file="
     url = static_file_url("rolling_optimization.png")
-    assert url.startswith("/gradio_api/file=")
-    assert url.endswith("/static/rolling_optimization.png")
+    assert url.startswith(prefix)
+    # Compared as a decoded path rather than as text, because on Windows the
+    # separators are backslashes and the drive letter's colon is encoded.
+    path = urllib.parse.unquote(url[len(prefix) :])
+    assert path == os.path.join(STATIC_FOLDER, "rolling_optimization.png")
 
 
 @pytest.mark.parametrize(
