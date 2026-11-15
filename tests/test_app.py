@@ -48,6 +48,9 @@ from app import (
     APP_TITLE_MD,
     DOCS_LINKS_MD,
     STATIC_FOLDER,
+    MAX_CACHED_DATES,
+    computed_at_label,
+    date_computed_markdown,
     BACKTEST_COLORS,
     BACKTEST_DIAGRAM_ALT,
     BACKTEST_DIAGRAM_FILE,
@@ -913,7 +916,10 @@ def test_backtest_assumptions_say_it_is_not_the_forecasts_period():
     text = backtest_assumptions_markdown(backtest_metadata())
     assert "**Not the forecasts' period:**" in text
     assert "start on different dates" in text
-    assert "before interface contract v46 have much shorter back tests" in text
+    # All dates were recomputed with year-long back tests, so the text does
+    # not claim that older dates have shorter ones.
+    assert "shorter back tests" not in text
+    assert "v46" not in text
 
 
 def test_backtest_assumptions_fill_each_dates_own_settings():
@@ -953,6 +959,102 @@ def test_docs_links_are_body_text_with_both_links():
     )
     # Normal text, not a heading.
     assert not DOCS_LINKS_MD.startswith("#")
+
+
+def test_computed_at_label():
+    assert computed_at_label("2026-11-14T12:00:00Z") == "2026-11-14 12:00 UTC"
+    # Anything not in the contract's form is shown unchanged.
+    assert computed_at_label("yesterday") == "yesterday"
+
+
+def test_date_computed_markdown_states_when_and_how():
+    metadata = SimpleNamespace(
+        date_to="2025-03-14", computed_at="2026-11-14T12:00:00Z", contract_version=48
+    )
+    text = date_computed_markdown(metadata)
+    assert text.startswith(
+        "**Computed:** 2026-11-14 12:00 UTC.  **Data format:** interface contract v48."
+    )
+    assert "Every result for 2025-03-14 uses only prices up to that trading day" in text
+    assert "prices as adjusted at that time" in text
+    # The disclaimer is shown once, at the bottom of the page.
+    assert DISCLAIMER_MD not in text
+    assert "investment advice" not in text.lower()
+
+
+def test_date_computed_markdown_with_one_value():
+    metadata = SimpleNamespace(
+        date_to="2026-11-12", computed_at=None, contract_version=48
+    )
+    text = date_computed_markdown(metadata)
+    assert text.startswith("**Data format:** interface contract v48.")
+    assert "Computed:" not in text
+
+
+def test_date_computed_markdown_empty_before_v48():
+    metadata = SimpleNamespace(
+        date_to="2026-11-12", computed_at=None, contract_version=None
+    )
+    assert date_computed_markdown(metadata) == ""
+    assert date_computed_markdown(None) == ""
+
+
+def cache_only_app(loaded):
+    """
+    Build an FSFinance object with only its cache, without running
+    __init__ (which creates input/ and an S3 client). load_date is replaced
+    by a stub that records each date it loads.
+    """
+    import threading
+    from collections import OrderedDict
+
+    fsf = FSFinance.__new__(FSFinance)
+    fsf._cache = OrderedDict()
+    fsf._cache_lock = threading.Lock()
+
+    def load_date(date, forecasts_metadata_published, backtest_published):
+        loaded.append(date)
+        return SimpleNamespace(date=date, complete=lambda: True)
+
+    fsf.load_date = load_date
+    return fsf
+
+
+def test_date_cache_keeps_at_most_max_cached_dates():
+    loaded = []
+    fsf = cache_only_app(loaded)
+    etags = ("m", "f", None, None, None)
+    dates = [f"2026-01-{day:02d}" for day in range(1, MAX_CACHED_DATES + 2)]
+    for date in dates:
+        fsf.date_data(date, etags)
+    assert len(fsf._cache) == MAX_CACHED_DATES
+    # The least recently used date was dropped and is loaded again.
+    assert dates[0] not in fsf._cache
+    fsf.date_data(dates[0], etags)
+    assert loaded.count(dates[0]) == 2
+
+
+def test_date_cache_reuse_makes_a_date_most_recent():
+    loaded = []
+    fsf = cache_only_app(loaded)
+    etags = ("m", "f", None, None, None)
+    dates = [f"2026-01-{day:02d}" for day in range(1, MAX_CACHED_DATES + 1)]
+    for date in dates:
+        fsf.date_data(date, etags)
+    # Reusing the oldest date keeps it; the next oldest is dropped instead.
+    fsf.date_data(dates[0], etags)
+    fsf.date_data("2026-02-01", etags)
+    assert dates[0] in fsf._cache
+    assert dates[1] not in fsf._cache
+    assert loaded.count(dates[0]) == 1
+
+
+def test_date_cache_reloads_a_date_whose_files_changed():
+    loaded = []
+    fsf = cache_only_app(loaded)
+    fsf.date_data("2026-01-02", ("m1", "f", None, None, None))
+    fsf.date_data("2026-01-02", ("m2", "f", None, None, None))
+    assert loaded == ["2026-01-02", "2026-01-02"]
 
 
 def test_static_folder_is_the_repo_static_folder():

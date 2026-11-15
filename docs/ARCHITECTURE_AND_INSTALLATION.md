@@ -31,12 +31,14 @@ The backend does all the modeling and publishes its results; this app only lists
    ├─ 2. LOAD      when a date is selected, unless already cached
    │      s3_downloader.py   download_file()    ─► input/YYYY-MM-DD/<file>
    │      data_loading.py    load_*()           validate against the contract
-   │      in-memory cache shared by all visitors, keyed by date + ETags
+   │      in-memory cache shared by all visitors, keyed by date + ETags,
+   │      at most MAX_CACHED_DATES dates (least recently used dropped)
    │
    └─ 3. DISPLAY   per visitor (selected date and ticker in Gradio state)
           # AliciaData Finance       page title (the display name)
           links to the docs          dashboard guide; methods and results
-          date selector              date dropdown; individual assets accordion
+          date selector              date dropdown; individual assets accordion;
+                                     "About this date's data" accordion (computed_at)
           # Portfolio Optimization
             ## Historical Performance Back Test   metric cards beside the rolling
                                                   optimization diagram (static/), growth of $1
