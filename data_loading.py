@@ -1,14 +1,14 @@
 """
-Load and validate the files the backend delivers to the S3 buckets.
+Load and validate the files the backend delivers to the S3 bucket.
 
-Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 49)
+Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 50)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
 so additive backend changes do not break the frontend.
 
-All files live in one bucket (a DigitalOcean Space) under two top-level
-folders, at keys `<folder>/YYYY-MM-DD/<file>`. This module also finds the
+All files live in one S3 bucket, on a self-hosted Garage server, under two
+top-level folders, at keys `<folder>/YYYY-MM-DD/<file>`. This module also finds the
 available dates from folder listings whose keys are relative to the folder
 (the `<folder>/` prefix already removed, as S3Downloader.list_keys returns
 them).
@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 49
+CONTRACT_VERSION = 50
 # Format of `computed_at` in the metadata files (contract v48), in UTC.
 UTC_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 

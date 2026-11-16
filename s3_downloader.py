@@ -58,12 +58,13 @@ def read_connection_settings():
 
 def check_endpoint(endpoint_url, bucket_name=None):
     """
-    Check that the endpoint is a region-only URL, such as
-    `https://nyc3.digitaloceanspaces.com`.
+    Check that the endpoint is the base URL of the S3 API, such as
+    `https://<s3-host>`, with no bucket name in the host and no path.
 
-    The bucket-specific endpoint (`https://<bucket>.<region>...`) makes
-    listings fail with `NoSuchKey` (see "Connecting" in the interface
-    contract), so it is refused with a clear message instead.
+    The bucket and the folders are passed as the S3 `Bucket` and `Key`
+    (see "Connecting" in the interface contract). An endpoint that names
+    the bucket in its host, or has a path, would make requests go to the
+    wrong place, so it is refused with a clear message instead.
 
     Parameters
     ----------
@@ -71,29 +72,33 @@ def check_endpoint(endpoint_url, bucket_name=None):
         Value of the endpoint environment variable.
 
     bucket_name : str | None
-        The bucket (Space) name. If None or empty, only the URL form is
-        checked.
+        The bucket name. If None or empty, the host is not checked for it.
 
     Raises
     ------
     S3ConfigurationError
-        If the endpoint is not an http(s) URL with a host, or its host
-        starts with the bucket name. The message does not include either
-        value.
+        If the endpoint is not an http(s) URL with a host, has a path
+        (a single trailing `/` is allowed), or its host starts with the
+        bucket name. The message does not include either value.
     """
     parsed = urlparse(endpoint_url)
     host = (parsed.hostname or "").lower()
     if parsed.scheme not in ("http", "https") or not host:
         raise S3ConfigurationError(
-            f"{ENDPOINT_ENV} must be a URL such as "
-            "https://<region>.digitaloceanspaces.com."
+            f"{ENDPOINT_ENV} must be a URL such as https://<s3-host>."
+        )
+    if parsed.path not in ("", "/"):
+        raise S3ConfigurationError(
+            f"{ENDPOINT_ENV} has a path. Use the base URL of the S3 API, "
+            "such as https://<s3-host>, and set the bucket and folder names "
+            "separately."
         )
     bucket = (bucket_name or "").strip().lower()
     if bucket and host.startswith(f"{bucket}."):
         raise S3ConfigurationError(
-            f"{ENDPOINT_ENV} names the bucket in its host. Use the region-only "
-            "endpoint, such as https://<region>.digitaloceanspaces.com, and "
-            "set the bucket name separately."
+            f"{ENDPOINT_ENV} names the bucket in its host. Use the base URL "
+            "of the S3 API, such as https://<s3-host>, and set the bucket "
+            "name separately."
         )
 
 
@@ -115,8 +120,8 @@ class S3Downloader:
             S3 client to use instead of creating one. Intended for tests.
 
         bucket_name : str | None
-            The bucket (Space) name, used only to check that the endpoint
-            does not name the bucket.
+            The bucket name, used only to check that the endpoint does not
+            name the bucket.
 
         Raises
         ------
@@ -150,8 +155,7 @@ class S3Downloader:
         Parameters
         ----------
         bucket_name : str | None
-            The bucket (Space) name. None or empty means it is not
-            configured.
+            The bucket name. None or empty means it is not configured.
 
         folder : str | None
             Top-level folder name, without slashes. None or empty means it
@@ -189,8 +193,7 @@ class S3Downloader:
         Parameters
         ----------
         bucket_name : str | None
-            The bucket (Space) name. None or empty means it is not
-            configured.
+            The bucket name. None or empty means it is not configured.
 
         object_name : str
             Full object key, including the top-level folder

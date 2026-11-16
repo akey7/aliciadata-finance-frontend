@@ -15,11 +15,11 @@ from s3_downloader import (
     check_endpoint,
 )
 
-ENDPOINT = "https://nyc3.digitaloceanspaces.com"
+ENDPOINT = "https://s3.example.com"
 FAKE_SETTINGS = {
     "AWS_ACCESS_KEY_ID": "test-key-id",
     "AWS_SECRET_ACCESS_KEY": "test-secret",
-    "AWS_DEFAULT_REGION": "nyc3",
+    "AWS_DEFAULT_REGION": "garage",
     "AWS_ENDPOINT_URL_S3": ENDPOINT,
 }
 
@@ -67,7 +67,7 @@ def test_downloader_passes_every_setting_to_boto3(fake_boto3, monkeypatch):
     assert service_name == "s3"
     assert kwargs["aws_access_key_id"] == "test-key-id"
     assert kwargs["aws_secret_access_key"] == "test-secret"
-    assert kwargs["region_name"] == "nyc3"
+    assert kwargs["region_name"] == "garage"
     assert kwargs["endpoint_url"] == ENDPOINT
 
 
@@ -93,11 +93,22 @@ def test_downloader_names_every_missing_setting(fake_boto3, monkeypatch):
 def test_downloader_refuses_bucket_specific_endpoint(fake_boto3, monkeypatch):
     set_settings(
         monkeypatch,
-        {**FAKE_SETTINGS, "AWS_ENDPOINT_URL_S3": "https://space.nyc3.digitaloceanspaces.com"},
+        {**FAKE_SETTINGS, "AWS_ENDPOINT_URL_S3": "https://space.s3.example.com"},
     )
-    with pytest.raises(S3ConfigurationError, match="region-only") as raised:
+    with pytest.raises(S3ConfigurationError, match="names the bucket") as raised:
         S3Downloader(bucket_name="space")
     assert "space." not in str(raised.value)
+    assert FakeSession.calls == []
+
+
+def test_downloader_refuses_endpoint_with_path(fake_boto3, monkeypatch):
+    set_settings(
+        monkeypatch,
+        {**FAKE_SETTINGS, "AWS_ENDPOINT_URL_S3": "https://s3.example.com/space"},
+    )
+    with pytest.raises(S3ConfigurationError, match="has a path") as raised:
+        S3Downloader(bucket_name="space")
+    assert "example.com" not in str(raised.value)
     assert FakeSession.calls == []
 
 
@@ -106,22 +117,26 @@ def test_downloader_refuses_bucket_specific_endpoint(fake_boto3, monkeypatch):
     [
         (ENDPOINT, "space"),
         (ENDPOINT, None),
-        ("https://NYC3.digitaloceanspaces.com/", "nyc3x"),
-        # A bucket whose name only starts like the region is not a match.
-        ("https://nyc3.digitaloceanspaces.com", "nyc"),
+        ("https://S3.example.com/", "s3x"),
+        # A bucket whose name only starts like the host is not a match.
+        ("https://s3.example.com", "s"),
+        # A plain-HTTP endpoint with a port, as on a private network.
+        ("http://garage:3900", "space"),
     ],
 )
-def test_check_endpoint_accepts_region_only_endpoints(endpoint, bucket_name):
+def test_check_endpoint_accepts_base_url_endpoints(endpoint, bucket_name):
     check_endpoint(endpoint, bucket_name)
 
 
 @pytest.mark.parametrize(
     "endpoint, bucket_name",
     [
-        ("https://space.nyc3.digitaloceanspaces.com", "space"),
-        ("https://SPACE.nyc3.digitaloceanspaces.com", "space"),
-        ("nyc3.digitaloceanspaces.com", "space"),
-        ("ftp://nyc3.digitaloceanspaces.com", None),
+        ("https://space.s3.example.com", "space"),
+        ("https://SPACE.s3.example.com", "space"),
+        ("https://s3.example.com/space", "space"),
+        ("https://s3.example.com/space/", None),
+        ("s3.example.com", "space"),
+        ("ftp://s3.example.com", None),
         ("https://", None),
     ],
 )
