@@ -7,10 +7,10 @@ The backend does all the modeling and publishes its results; this app only lists
 ```
  legend: [external]   module.py   ─► data flow
 
- [aliciadata-finance-backend]   backend repo; uploads one date folder per run
-            │
+ [aliciadata-finance-backend]   backend repo, not on the VPS; uploads one
+            │                   date folder per run over the network
             ▼
- [DigitalOcean Space]   one bucket (S3_BUCKET_NAME), two folders
+ [Garage S3 server]   on the VPS; one bucket (S3_BUCKET_NAME), two folders
    <portfolio optimization folder>/YYYY-MM-DD/
        optimization_metadata.yml             marker: the date is complete
        portfolio_optimization_plot_data.h5
@@ -55,7 +55,34 @@ The backend does all the modeling and publishes its results; this app only lists
 
 The files the backend delivers, and how the app must read them, are specified in the [Interface Contract](INTERFACE_CONTRACT.md). That file is a read-only mirror of the copy in the backend repo. The app requires contract v4 or later data; older files are reported on the dashboard instead of being displayed.
 
-All data lives in one DigitalOcean Space (one S3 bucket) with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and the page's two stacked sections, **Portfolio Optimization** (top) and **Timeseries Analysis** (below), show data from the selected date only. The Portfolio Optimization section has two parts, **Historical Performance Back Test** and **Latest Optimization**; dates before contract v36 have no back test files and show a message in place of the first. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the Space as well as to read objects.
+All data lives in one S3 bucket, served by a self-hosted [Garage](https://garagehq.deuxfleurs.fr/) server on the same VPS as this app (see "Hosting"), with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and the page's two stacked sections, **Portfolio Optimization** (top) and **Timeseries Analysis** (below), show data from the selected date only. The Portfolio Optimization section has two parts, **Historical Performance Back Test** and **Latest Optimization**; dates before contract v36 have no back test files and show a message in place of the first. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the bucket as well as to read objects.
+
+### Hosting
+
+This is a proof-of-concept project, so it is hosted on a single VPS from [Hetzner](https://www.hetzner.com), which keeps deployment simple and hosting costs low and predictable. Three services run on the VPS, each in its own Docker container:
+
+- **Garage**, the S3-compatible object store that holds the bucket.
+- **This Gradio app**, which reads the bucket.
+- **[Caddy](https://caddyserver.com)**, the reverse proxy that serves https://aliciadata.com over HTTPS and forwards requests to the app.
+
+The containers are built and installed onto the VPS with [Ansible](https://www.ansible.com); see "Deployment". The backend is **not** hosted on the VPS: it runs elsewhere and uploads its results to Garage over the network. For how the backend connects to the bucket, see the [backend repo](https://github.com/akey7/aliciadata-finance-backend).
+
+```
+ [aliciadata-finance-backend]   not on the VPS
+            │ S3 uploads over the network
+            ▼
+ Hetzner VPS (three Docker containers, installed with Ansible)
+   Garage      S3 bucket
+      │ S3 reads
+      ▼
+   Gradio app  this repo, port 7860
+      ▲
+      │
+   Caddy       reverse proxy, HTTPS for aliciadata.com
+      ▲
+      │
+ [visitor's browser]
+```
 
 ## Installation
 
@@ -131,41 +158,43 @@ uv run pytest
 uv run python app.py
 ```
 
-After merging, deploy in Dokploy as usual (see "Deployment"). If a Dependabot branch has been rebased since you last checked it out, replace your local copy with the one on GitHub instead of pulling.
+After merging, deploy with Ansible as usual (see "Deployment"). If a Dependabot branch has been rebased since you last checked it out, replace your local copy with the one on GitHub instead of pulling.
 
 ### `.env` file and environment variables
 
-In production, these environment variables are set in the Dokploy application's environment settings (see "Deployment" below). On a development environment, they are managed in a `.env` file **that should never be committed to GitHub**; `.dockerignore` also keeps it out of the Docker image.
+In production, these environment variables are set by the Ansible deployment (see "Deployment" below), not by any file in this repo. On a development environment, they are managed in a `.env` file **that should never be committed to GitHub**; `.dockerignore` also keeps it out of the Docker image.
 
-1. `AWS_ENDPOINT_URL_S3`: the **region-only** endpoint, `https://<region>.digitaloceanspaces.com`. Do **not** use the Space-specific "origin endpoint" (`https://<space>.<region>.digitaloceanspaces.com`); with it, listing the available dates fails with `NoSuchKey`, so the app refuses an endpoint whose host starts with the Space name.
+1. `AWS_ENDPOINT_URL_S3`: the **base URL of Garage's S3 API** (for example `https://<s3-host>`), with no bucket name in the host and no path. The app refuses an endpoint whose host starts with the bucket name or that has a path (a single trailing `/` is allowed), because the bucket and folders are passed separately (see "Connecting" in the [Interface Contract](INTERFACE_CONTRACT.md)).
 
-2. `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: region and read-only access key for the Space.
+2. `AWS_DEFAULT_REGION`: must equal the region configured in Garage (its `s3_region` setting), because Garage checks the region in each request's signature.
 
-3. `S3_BUCKET_NAME`: name of the DigitalOcean Space (the S3 bucket) that holds all the data.
+3. `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: a read-only Garage access key for the bucket.
 
-4. `S3_PORTFOLIO_OPTIMIZATION_FOLDER`: the **top-level folder** inside the Space that holds the portfolio optimization files (e.g. `portfolio-optimization`).
+4. `S3_BUCKET_NAME`: name of the S3 bucket that holds all the data.
 
-5. `S3_TIME_SERIES_FOLDER`: the **top-level folder** inside the Space that holds the time series forecasts (e.g. `time-series`).
+5. `S3_PORTFOLIO_OPTIMIZATION_FOLDER`: the **top-level folder** inside the bucket that holds the portfolio optimization files (e.g. `portfolio-optimization`).
+
+6. `S3_TIME_SERIES_FOLDER`: the **top-level folder** inside the bucket that holds the time series forecasts (e.g. `time-series`).
 
 The four `AWS_*` variables use boto3's standard names, like the backend, but they are this app's own settings, not part of the [Interface Contract](INTERFACE_CONTRACT.md). The app reads each one explicitly and passes it to boto3. If any is missing or empty, it does not connect: the log names every missing variable (never a value) and the page shows a message instead of data. boto3 therefore never falls back to other credentials (such as `~/.aws` or a profile) or to AWS's own endpoint. The app loads `.env` with `override=True`, so a local `.env` wins over AWS variables exported in your shell; keep all four in `.env`, because a variable missing from `.env` is still taken from the shell.
 
-Dev and production share the one Space and differ only in the two folder names, so these two variables select the environment. Use the same pair of values as the backend for the same environment.
+Dev and production share the one bucket and differ only in the two folder names, so these two variables select the environment. Use the same pair of values as the backend for the same environment.
 
 Older names are no longer read, with no fallback. Before contract v45 the three shared variables were `FSF_FRONT_END_BUCKET_NAME`, `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, and `FSF_FRONT_END_TIME_SERIES_FOLDER` (and before v13 the folder variables were `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`). The credentials were `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`, and `FSF_FRONT_END_BUCKET_READ_ONLY`.
 
 ## Deployment
 
-The live dashboard, AliciaData Finance, is served at https://aliciadata.com by a self-hosted [Dokploy](https://dokploy.com) instance on a VPS. Deployment is manual; GitHub Actions only runs the tests.
+The live dashboard, AliciaData Finance, is served at https://aliciadata.com from the Hetzner VPS described under "Hosting". Deployment is manual; GitHub Actions only runs the tests. The Ansible playbooks that build and install the containers are kept outside this repo.
 
 ```
  pull request to main ─► GitHub Actions: tests workflow (uv sync --locked, pytest)
                          required to pass by a ruleset before merging
  merge to main
- click Deploy in Dokploy ─► Dokploy pulls main from GitHub
-                            builds the Dockerfile on the VPS
-                            replaces the running container (one replica)
- visitor ─► https://aliciadata.com ─► Traefik (Let's Encrypt HTTPS)
-                                   ─► container, port 7860 ─► Gradio app
+ run the Ansible deployment ─► builds this repo's Dockerfile from main
+                               installs the image on the VPS
+                               replaces the running container (one replica)
+ visitor ─► https://aliciadata.com ─► Caddy (HTTPS)
+                                   ─► app container, port 7860 ─► Gradio app
 ```
 
 ### Docker image
@@ -174,24 +203,24 @@ The [`Dockerfile`](../Dockerfile) builds from `python:3.13.5-slim-bookworm`, cop
 
 ### Tests workflow
 
-[`.github/workflows/tests.yml`](../.github/workflows/tests.yml) runs `uv sync --locked` and `uv run pytest` on every pull request to `main` and every push to `main`, with read-only repository permissions and no secrets. Its actions are pinned by full commit SHA. A ruleset on `main` requires the `test` job to pass before a pull request can be merged. The workflow does not deploy: the Dokploy dashboard is reachable only over a private network, not from GitHub.
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml) runs `uv sync --locked` and `uv run pytest` on every pull request to `main` and every push to `main`, with read-only repository permissions and no secrets. Its actions are pinned by full commit SHA. A ruleset on `main` requires the `test` job to pass before a pull request can be merged. The workflow does not deploy: deployment is run by hand with Ansible.
 
-### Dokploy application settings
+### Production container settings
 
-- **Source:** Git, `https://github.com/akey7/aliciadata-finance-frontend.git`, branch `main`. Build type Dockerfile, path `Dockerfile`, context `.`. Automatic deployment is off.
-- **Environment:** the seven variables listed above, with the **production** folder names.
-- **Domain:** `aliciadata.com`, path `/`, container port **7860**, HTTPS with Let's Encrypt. No ports are published directly.
+- **Image:** built from this repo's `Dockerfile` (context `.`) on `main`.
+- **Environment:** the seven variables listed above, with the **production** folder names, set by the Ansible deployment.
+- **Network:** Caddy serves `aliciadata.com` over HTTPS and forwards to the container's port **7860**. Only Caddy is exposed to the internet; the app container publishes no ports of its own.
 - **Replicas:** 1, because the in-memory cache and Gradio sessions are per process.
 
 ### Deploying and rolling back
 
 1. Merge a pull request into `main` after the tests workflow passes.
-2. In Dokploy, open the application and click **Deploy**. Follow the build in the deployment log.
-3. Check the application log for `Running on local URL: http://0.0.0.0:7860` and the absence of `Could not create the S3 client` or `Missing configuration`, then load https://aliciadata.com.
+2. Run the Ansible deployment, which builds the image from `main` and replaces the running container.
+3. Check the container's log for `Running on local URL: http://0.0.0.0:7860` and the absence of `Could not create the S3 client` or `Missing configuration`, then load https://aliciadata.com.
 
-There is no automatic rollback. To roll back, redeploy an earlier deployment from the application's deployment list in Dokploy, or revert the change on `main` and deploy again.
+There is no automatic rollback. To roll back, revert the change on `main` and deploy again.
 
-**Troubleshooting:** if the container keeps restarting with no log output, `docker service ps <service> --no-trunc` on the server shows its exit code, and running the image with `-e PYTHONFAULTHANDLER=1` prints a traceback for crashes such as exit code 132 (illegal instruction).
+**Troubleshooting:** if the container keeps restarting with no log output, `docker ps -a` on the server shows its exit code, and running the image with `-e PYTHONFAULTHANDLER=1` prints a traceback for crashes such as exit code 132 (illegal instruction).
 
 ## Purposes of folders and scripts
 
@@ -208,7 +237,7 @@ There is no automatic rollback. To roll back, redeploy an earlier deployment fro
 | Filename           | Standalone Execution? | Purpose                                                                                  |
 | ------------------ | --------------------- | ---------------------------------------------------------------------------------------- |
 | `app.py`           | Yes                   | Run the AliciaData Finance Frontend Gradio app.                                          |
-| `s3_downloader.py` | No                    | Lists folders in the Space and downloads data from it for display on the app.            |
+| `s3_downloader.py` | No                    | Lists folders in the bucket and downloads data from it for display on the app.           |
 | `data_loading.py`  | No                    | Finds available dates and loads and validates the downloaded files against the [Interface Contract](INTERFACE_CONTRACT.md). |
 
 ### Deployment files

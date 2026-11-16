@@ -59,7 +59,7 @@ MAX_CACHED_DATES = 24
 # whatever the working directory; it serves files there at
 # /gradio_api/file=<absolute path to the file>.
 STATIC_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-# One bucket (DigitalOcean Space) holds two top-level folders (see the contract).
+# One S3 bucket holds two top-level folders (see the contract).
 # Named as in contract v45; the pre-v45 FSF_FRONT_END_* names are not read.
 BUCKET_NAME_ENV = "S3_BUCKET_NAME"
 PORTFOLIO_FOLDER_ENV = "S3_PORTFOLIO_OPTIMIZATION_FOLDER"

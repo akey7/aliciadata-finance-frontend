@@ -1,5 +1,6 @@
-# Container image for the production deployment, built by Dokploy on the VPS
-# (see docs/ARCHITECTURE_AND_INSTALLATION.md). Dependencies come from uv.lock.
+# Container image for the production deployment, built and installed on the
+# VPS with Ansible (see docs/ARCHITECTURE_AND_INSTALLATION.md). Dependencies
+# come from uv.lock.
 
 # Python pinned to the same patch version as .python-version.
 FROM python:3.13.5-slim-bookworm
@@ -29,9 +30,9 @@ COPY static/ ./static/
 RUN useradd --create-home appuser && mkdir input && chown appuser input
 USER appuser
 
-# Configuration and secrets come from the environment (e.g. Dokploy's
-# environment settings), never from a .env file in the image. Gradio listens
-# on all interfaces so the container's port can be published.
+# Configuration and secrets come from the environment (set by the Ansible
+# deployment), never from a .env file in the image. Gradio listens on all
+# interfaces so the reverse proxy can reach the container's port.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     GRADIO_SERVER_NAME=0.0.0.0 \

@@ -1,7 +1,7 @@
 # Runs the test suite on every pull request to main and every push to main.
 # A ruleset on main requires the `test` job to pass before a pull request
 # can be merged. Deployment is not automated: after a merge, the app is
-# deployed by hand from Dokploy (see docs/ARCHITECTURE_AND_INSTALLATION.md).
+# deployed by hand with Ansible (see docs/ARCHITECTURE_AND_INSTALLATION.md).
 # The tests use no network access and no secrets.
 #
 # Third-party actions are pinned by full commit SHA, with the release tag in

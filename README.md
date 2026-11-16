@@ -9,9 +9,9 @@ The dashboard presents two complementary analytical workflows:
 - **Time-series forecasting:** Compare observed stock prices with one-day-ahead ARIMA and naive forecasts, inspect the models used for individual predictions, and evaluate out-of-sample accuracy using RMSE, MAE, MAPE, relative MAE, forecast skill, and directional accuracy.
 - **Portfolio optimization:** Explore the mean-variance efficient frontier, Monte Carlo-simulated portfolios, minimum-variance and maximum-Sharpe portfolios, risk-adjusted performance, and portfolio allocations, plus a walk-forward back test of the maximum-Sharpe portfolio against an equal-weight baseline.
 
-The application separates computationally intensive modeling from interactive presentation. The backend performs statistical estimation, model evaluation, simulation, and optimization, then publishes dated results to DigitalOcean Spaces (S3-compatible object storage). The frontend retrieves and validates those results for visualization without repeating the underlying numerical computations.
+The application separates computationally intensive modeling from interactive presentation. The backend performs statistical estimation, model evaluation, simulation, and optimization, then publishes dated results to a self-hosted S3-compatible object store ([Garage](https://garagehq.deuxfleurs.fr/)). The frontend retrieves and validates those results for visualization without repeating the underlying numerical computations.
 
-This architecture supports a lightweight deployment while preserving analytical provenance, consistent financial units, and a versioned data interface between independently maintained applications.
+This architecture supports a lightweight deployment while preserving analytical provenance, consistent financial units, and a versioned data interface between independently maintained applications. The frontend, the object store, and a Caddy reverse proxy run in Docker containers on a single Hetzner VPS, installed with Ansible, which keeps hosting simple and costs low and predictable; the backend runs elsewhere.
 
 ## Live Application
 
@@ -19,7 +19,7 @@ This architecture supports a lightweight deployment while preserving analytical 
 
 ## Documentation
 
-- **[Dashboard Guide](docs/DASHBOARD_GUIDE.md):** Visualizations, interactive features, quantitative interpretation, and limitations.
+- **[Dashboard Guide](docs/DASHBOARD_GUIDE.md):** What each control, plot, and table shows, how each model compares with its naive baseline, and which direction is better for each metric.
 - **[Architecture and Installation](docs/ARCHITECTURE_AND_INSTALLATION.md):** Object storage and data flow, local installation, configuration, execution, testing, and deployment.
 - **[Interface Contract](docs/INTERFACE_CONTRACT.md):** Versioned data formats, schema definitions, compatibility requirements, and backend/frontend integration.
 
@@ -29,7 +29,7 @@ This architecture supports a lightweight deployment while preserving analytical 
 
 The backend contains the numerical modeling, walk-forward evaluation, constrained portfolio optimization, Monte Carlo simulation, and result-generation pipeline.
 
-For mathematical methods and evaluation results, see the backend's [Methods and Results documentation](https://github.com/akey7/aliciadata-finance-backend/blob/main/docs/METHODS_AND_RESULTS.md).
+For mathematical methods, evaluation results, and limitations, see the [Methods and Results](https://akey7.github.io/posts/aliciadata-finance/) document.
 
 ---
 
