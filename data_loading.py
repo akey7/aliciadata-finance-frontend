@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 50
+CONTRACT_VERSION = 51
 # Format of `computed_at` in the metadata files (contract v48), in UTC.
 UTC_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
