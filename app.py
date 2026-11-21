@@ -461,15 +461,23 @@ def portfolio_weights_df(metadata):
     Returns
     -------
     pd.DataFrame
-        Columns "Ticker", "Max Sharpe Weight", and, when available, "Min
-        Variance Weight" and "Max Return Weight", with weights as text
-        such as "22.40%".
+        Columns "Ticker", "Max Sharpe (NLP) Weight", and, when available,
+        "Min Variance (QP) Weight" and "Max Return (LP) Weight", with
+        weights as text such as "22.40%". The abbreviation in each name is
+        the class of optimization problem the portfolio solves under the
+        linear constraints (long-only, fully invested, capped weights):
+        maximizing the Sharpe ratio is a nonlinear program, minimizing
+        variance a quadratic program, and maximizing expected return a
+        linear program.
     """
     max_return = metadata.max_return
     candidates = [
-        ("Max Sharpe Weight", metadata.weights),
-        ("Min Variance Weight", metadata.min_var_weights),
-        ("Max Return Weight", max_return.weights if max_return is not None else None),
+        ("Max Sharpe (NLP) Weight", metadata.weights),
+        ("Min Variance (QP) Weight", metadata.min_var_weights),
+        (
+            "Max Return (LP) Weight",
+            max_return.weights if max_return is not None else None,
+        ),
     ]
     columns = [
         (name, clean_weights(weights))
@@ -497,6 +505,37 @@ def portfolio_weights_df(metadata):
     for name in names:
         df[name] = df[name].map(as_percent)
     return df
+
+
+def problem_types_markdown(metadata):
+    """
+    Generate one bullet explaining the abbreviations in the weights table's
+    column names (see portfolio_weights_df): NLP, QP, and LP. Only the
+    abbreviations of the columns shown for this date are explained.
+
+    Parameters
+    ----------
+    metadata : OptimizationMetadata
+        Loaded optimization metadata.
+
+    Returns
+    -------
+    str
+        A markdown bullet, starting with "- ".
+    """
+    parts = [
+        "NLP is a nonlinear program (the max Sharpe portfolio maximizes a ratio "
+        "of excess return to volatility)"
+    ]
+    if metadata.min_var_weights is not None:
+        parts.append("QP a quadratic program (minimizing variance)")
+    if metadata.max_return is not None:
+        parts.append("LP a linear program (maximizing expected return)")
+    return (
+        "- **Problem types in the weights table:** "
+        + ", ".join(parts)
+        + ", each solved under the same linear constraints."
+    )
 
 
 def assets_df(metadata):
@@ -1917,7 +1956,9 @@ class FSFinance:
         """
         Generate the bullet list of assumptions behind the portfolio
         optimization, shown in a collapsed accordion below the weights
-        table (whose label serves as the heading). Includes how the two
+        table (whose label serves as the heading). Includes what the
+        abbreviations in the weights table's column names mean
+        (problem_types_markdown), how the two
         portfolios differ when the date has both portfolios' weights
         (contract v28+), and, when the plot is shown, a "Random portfolio
         sampling" part on what the plotted random portfolios mean
@@ -1944,6 +1985,7 @@ class FSFinance:
             f"- **Risk-free rate:** {m.risk_free_rate:.2f}% per year, the 3-month U.S. "
             f"Treasury bill rate (FRED series DTB3) observed {m.risk_free_rate_date}.",
             "- **Weights** are in percent and rounded, so they may not sum to exactly 100%.",
+            problem_types_markdown(m),
         ]
         if m.min_var_weights is not None:
             # The contract's suggested wording near both portfolios' weights.

@@ -32,6 +32,7 @@ from app import (
     portfolio_optimization_figure,
     portfolio_plot_subtitle,
     portfolio_weights_df,
+    problem_types_markdown,
     training_window_text,
 )
 from app import (
@@ -304,7 +305,11 @@ def test_portfolio_weights_df_both_portfolios():
         max_return=None,
     )
     df = portfolio_weights_df(metadata)
-    assert list(df.columns) == ["Ticker", "Max Sharpe Weight", "Min Variance Weight"]
+    assert list(df.columns) == [
+        "Ticker",
+        "Max Sharpe (NLP) Weight",
+        "Min Variance (QP) Weight",
+    ]
     # Sorted by max Sharpe weight, then minimum variance weight; noise shown as 0.
     assert df.values.tolist() == [
         ["QQQ", "60.00%", "0.00%"],
@@ -319,7 +324,7 @@ def test_portfolio_weights_df_before_v28():
         weights={"QQQ": 60.0, "XLE": 40.0}, min_var_weights=None, max_return=None
     )
     df = portfolio_weights_df(metadata)
-    assert list(df.columns) == ["Ticker", "Max Sharpe Weight"]
+    assert list(df.columns) == ["Ticker", "Max Sharpe (NLP) Weight"]
     assert df.values.tolist() == [["QQQ", "60.00%"], ["XLE", "40.00%"]]
 
 
@@ -488,9 +493,9 @@ def test_portfolio_weights_df_with_max_return():
     df = portfolio_weights_df(v32_namespace())
     assert list(df.columns) == [
         "Ticker",
-        "Max Sharpe Weight",
-        "Min Variance Weight",
-        "Max Return Weight",
+        "Max Sharpe (NLP) Weight",
+        "Min Variance (QP) Weight",
+        "Max Return (LP) Weight",
     ]
     # Noise (1e-15) shown as zero, and the cap's 39.99999999999998 rounded.
     assert df.values.tolist() == [
@@ -498,6 +503,29 @@ def test_portfolio_weights_df_with_max_return():
         ["XLE", "40.00%", "60.00%", "40.00%"],
         ["FXE", "0.00%", "40.00%", "0.00%"],
     ]
+
+
+def test_problem_types_markdown_explains_shown_columns_only():
+    text = problem_types_markdown(v32_namespace())
+    assert text.startswith("- **Problem types in the weights table:** ")
+    assert "\n" not in text
+    for abbreviation in ("NLP is a nonlinear", "QP a quadratic", "LP a linear"):
+        assert abbreviation in text
+    # Dates before v28 (no minimum variance) and v32 (no maximum return)
+    # do not show those columns, so their abbreviations are left out.
+    older = problem_types_markdown(
+        v32_namespace(min_var_weights=None, max_return=None)
+    )
+    assert "NLP is a nonlinear" in older
+    assert "QP" not in older
+    assert "LP a linear" not in older
+
+
+def test_assumptions_explain_problem_types():
+    metadata = v32_namespace(risk_free_rate=4.04, risk_free_rate_date="2026-10-23")
+    assert problem_types_markdown(metadata) in assumptions_markdown(
+        metadata, False
+    ).splitlines()
 
 
 def test_assets_df_numeric_and_sorted_by_return():

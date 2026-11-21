@@ -93,7 +93,7 @@ Comparing the marked portfolios with the cloud shows how far the optimized portf
 
 ![The Latest Optimization Weights table: each ticker's weight in the max Sharpe, minimum variance, and maximum return portfolios](images/dashboard-guide/06-latest-weights.png)
 
-The **Latest Optimization Weights** table gives each ticker's share of each portfolio, in percent: **Max Sharpe Weight**, **Min Variance Weight**, and, when available, **Max Return Weight**. Each portfolio's weights add up to 100%. A weight of 0.00% means the portfolio does not hold that ticker.
+The **Latest Optimization Weights** table gives each ticker's share of each portfolio, in percent: **Max Sharpe (NLP) Weight**, **Min Variance (QP) Weight**, and, when available, **Max Return (LP) Weight**. The abbreviation in each column name is the type of optimization problem that portfolio solves (nonlinear, quadratic, or linear program), which the accordion below also explains. Each portfolio's weights add up to 100%. A weight of 0.00% means the portfolio does not hold that ticker.
 
 The collapsed **Portfolio optimization, random sampling, and back testing assumptions...** accordion lists the settings behind this section's results. For the methods themselves, see the [Methods and Results](https://akey7.github.io/posts/aliciadata-finance/) document.
 
