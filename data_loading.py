@@ -1,7 +1,7 @@
 """
 Load and validate the files the backend delivers to the S3 bucket.
 
-Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 50)
+Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 52)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 51
+CONTRACT_VERSION = 52
 # Format of `computed_at` in the metadata files (contract v48), in UTC.
 UTC_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
