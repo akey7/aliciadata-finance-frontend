@@ -111,7 +111,7 @@ The **Ticker** dropdown selects which ticker the plot and the accuracy metrics s
 
 The diagram on the right shows how the forecasts are made. Each bar is one fit: the blue part is the previous 250 trading days the model is fitted on, and the orange part is the next day, the one it forecasts and is scored on. The window then moves forward one day for the next fit.
 
-The **Forecast accuracy** table scores the ARIMA and naive forecasts on the same recent trading days, side by side. The line above it gives the number of days and their dates. These scored days cover a much shorter, more recent period than the back test in Portfolio Optimization, so the two sections' numbers do not come from the same days.
+The **Forecast accuracy** table scores the ARIMA and naive forecasts on the same recent trading days, side by side. The line above it gives the number of days and their dates. For recent dates these are the same trading days as the back test in Portfolio Optimization, about a year ending on the selected date. Their lengths are set separately, though, and older dates score a much shorter period, so check the dates before comparing the two sections' numbers. The back test's accordion says whether the two cover the same days.
 
 | Metric | Units | Better when |
 | --- | --- | --- |

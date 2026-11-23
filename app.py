@@ -298,8 +298,10 @@ def training_window_text(training_window_returns):
 def metrics_windows_text(training_window_returns, target_trading_days):
     """
     Name the training window next to the contract's sample-size caveat on
-    the scored days, so the caveat is not read as describing the training
-    data. Both lengths are backend settings read from the metadata.
+    the scored days (its v52 wording: one period, so indicative, and an
+    effective sample smaller than the number of days), so the caveat is not
+    read as describing the training data. Both lengths are backend settings
+    read from the metadata, so the text holds for any length.
 
     Parameters
     ----------
@@ -313,16 +315,16 @@ def metrics_windows_text(training_window_returns, target_trading_days):
     Returns
     -------
     str
-        E.g. "ARIMA training windows are 252 trading days in length. 60
-        trading days is a modest sample, and consecutive forecasts are not
-        independent, so the effective sample is smaller still; treat these
-        as indicative."
+        E.g. "ARIMA training windows are 252 trading days in length. These
+        metrics come from one period of 250 trading days, so treat them as
+        indicative. Consecutive forecasts are not independent, so the
+        effective sample is smaller than the number of days."
     """
     return (
         f"ARIMA training windows are {training_window_returns + 1} trading days "
-        f"in length. {target_trading_days} trading days is a modest sample, and "
-        "consecutive forecasts are not independent, so the effective sample is "
-        "smaller still; treat these as indicative."
+        f"in length. These metrics come from one period of {target_trading_days} "
+        "trading days, so treat them as indicative. Consecutive forecasts are not "
+        "independent, so the effective sample is smaller than the number of days."
     )
 
 
@@ -1167,15 +1169,67 @@ def backtest_plot(daily):
     )
 
 
-def backtest_assumptions_markdown(metadata):
+def forecasts_period_markdown(backtest, forecasts_metadata):
+    """
+    Generate one bullet on whether the back test and the forecast accuracy
+    metrics cover the same trading days. Both end on the selected date, but
+    their lengths are separate backend settings (contract v46): since v52
+    they are equal, while dates written earlier have shorter forecast
+    evaluations. So the periods are compared instead of assumed: they
+    match when the number of days and the first and last day are equal.
+
+    Parameters
+    ----------
+    backtest : BacktestMetadata
+        Loaded back test metadata.
+
+    forecasts_metadata : ForecastsMetadata | None
+        The same date's forecasts metadata, if available.
+
+    Returns
+    -------
+    str
+        A markdown bullet, starting with "- ".
+    """
+    b = backtest
+    if forecasts_metadata is None:
+        return (
+            "- **Forecasts' period:** the back test and the forecast accuracy "
+            "metrics under Timeseries Analysis both end on the selected date, but "
+            "their lengths are separate settings, so they can start on different "
+            "dates."
+        )
+    f = forecasts_metadata
+    if (
+        b.trading_days == f.target_trading_days
+        and b.start_date == f.evaluation_start_date
+        and b.end_date == f.evaluation_end_date
+    ):
+        return (
+            "- **Same period as the forecasts:** the back test and the forecast "
+            f"accuracy metrics under Timeseries Analysis cover the same "
+            f"{b.trading_days} trading days ({b.start_date} to {b.end_date}). "
+            "Their lengths are separate settings, so other dates can differ."
+        )
+    return (
+        "- **Not the forecasts' period:** the back test covers "
+        f"{b.trading_days} trading days ({b.start_date} to {b.end_date}), and "
+        "the forecast accuracy metrics under Timeseries Analysis cover "
+        f"{f.target_trading_days} ({f.evaluation_start_date or 'n/a'} to "
+        f"{f.evaluation_end_date or 'n/a'}), so their numbers do not come from "
+        "the same days."
+    )
+
+
+def backtest_assumptions_markdown(metadata, forecasts_metadata=None):
     """
     Generate the "Back testing" part of the assumptions accordion: the
     contract's suggested wording (v46), with the window lengths read from
     the file, then its notes on reading the results. A note on the fallback
     is added only when a rebalance used it. The text holds for any back
-    test length (every number is read from the file); nothing assumes a
-    length or that the back test covers the same days as the forecast
-    metrics. The
+    test length (every number is read from the file). Whether the back
+    test covers the same days as the forecast metrics is checked, not
+    assumed (forecasts_period_markdown). The
     investment-advice disclaimer is not repeated here; it is shown once, at
     the bottom of the page.
 
@@ -1183,6 +1237,10 @@ def backtest_assumptions_markdown(metadata):
     ----------
     metadata : BacktestMetadata
         Loaded back test metadata.
+
+    forecasts_metadata : ForecastsMetadata | None
+        The same date's forecasts metadata, if available, to compare the
+        two periods.
 
     Returns
     -------
@@ -1250,10 +1308,7 @@ def backtest_assumptions_markdown(metadata):
         "- **Comparing dates:** consecutive dates overlap almost entirely, and the "
         "settings can differ between them. Compare the number of trading days and the "
         "rebalance schedule before comparing metrics across dates.",
-        "- **Not the forecasts' period:** the back test and the forecast accuracy "
-        "metrics under Timeseries Analysis both end on the selected date, but they "
-        "generally start on different dates and cover different numbers of trading "
-        "days.",
+        forecasts_period_markdown(m, forecasts_metadata),
     ]
     if m.fallback_count > 0:
         fallback = f" ({m.fallback_assumption})" if m.fallback_assumption else ""
@@ -2524,7 +2579,9 @@ class FSFinance:
                     )
                 if data.backtest_metadata is not None:
                     assumptions.append(
-                        backtest_assumptions_markdown(data.backtest_metadata)
+                        backtest_assumptions_markdown(
+                            data.backtest_metadata, data.forecasts_metadata
+                        )
                     )
                 if assumptions:
                     with gr.Accordion(

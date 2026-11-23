@@ -1,7 +1,7 @@
 """
 Tests for the text helpers in app.py that describe how the forecasts are
 made and scored and how ARIMA compared with the naive forecast, for the
-date conversion behind the time series plot, for the portfolio weights
+date conversion and data behind the time series plot, for the portfolio weights
 table, for the portfolio optimization plot (capital allocation line
 clipping, NaN frontier points, legend placement, labels, and the maximum
 return marker), for the text and tables built from the contract v32
@@ -27,6 +27,7 @@ from app import (
     accuracy_verdict,
     capital_allocation_line,
     metrics_windows_text,
+    date_label,
     noon_timestamps,
     order_selection_text,
     portfolio_optimization_figure,
@@ -72,6 +73,7 @@ from app import (
     backtest_heading_markdown,
     backtest_metrics_note_markdown,
     backtest_plot,
+    forecasts_period_markdown,
     signed_percent,
 )
 from data_loading import (
@@ -383,18 +385,61 @@ def test_training_window_text_without_metadata():
 
 
 def test_metrics_windows_text():
-    assert metrics_windows_text(251, 60) == (
-        "ARIMA training windows are 252 trading days in length. 60 trading days "
-        "is a modest sample, and consecutive forecasts are not independent, so "
-        "the effective sample is smaller still; treat these as indicative."
+    # Contract v52 wording, with about a year of scored days.
+    assert metrics_windows_text(251, 250) == (
+        "ARIMA training windows are 252 trading days in length. These metrics "
+        "come from one period of 250 trading days, so treat them as indicative. "
+        "Consecutive forecasts are not independent, so the effective sample is "
+        "smaller than the number of days."
     )
 
 
 def test_metrics_windows_text_other_settings():
-    # Older dates: 20 returns (21 closes) of training and 20 scored days.
+    # Older dates: 20 returns (21 closes) of training and 20 or 60 scored days.
     text = metrics_windows_text(20, 20)
     assert text.startswith("ARIMA training windows are 21 trading days in length.")
-    assert "20 trading days is a modest sample" in text
+    assert "one period of 20 trading days" in text
+    assert "one period of 60 trading days" in metrics_windows_text(251, 60)
+    assert "modest" not in text
+
+
+def year_of_forecasts(scored_days=250):
+    """
+    Build forecasts shaped like a contract v52 all_forecasts.csv for one
+    ticker: scored_days rows with an actual close, then the live forecast
+    row, whose actual close is empty.
+    """
+    rows = scored_days + 1
+    dates = pd.bdate_range("2025-11-03", periods=rows, name="pred_date")
+    prices = np.linspace(100.0, 150.0, rows)
+    actual = prices.copy()
+    actual[-1] = np.nan
+    return pd.DataFrame(
+        {
+            "GLD_arima": prices + 0.5,
+            "GLD_arima_p": pd.array([1] * rows, dtype="Int64"),
+            "GLD_arima_d": pd.array([1] * rows, dtype="Int64"),
+            "GLD_arima_q": pd.array([0] * rows, dtype="Int64"),
+            "GLD_naive": prices - 0.5,
+            "GLD": actual,
+        },
+        index=dates,
+    )
+
+
+def test_long_df_keeps_every_scored_day():
+    # Contract v52: the chart shows the whole year of scored days, not a
+    # fixed number of recent rows. long_df uses nothing set by __init__
+    # (which would create input/), so the app object is not initialized.
+    app = object.__new__(FSFinance)
+    forecasts = year_of_forecasts()
+    df = app.long_df(forecasts, "GLD")
+    counts = df["Series"].value_counts()
+    assert counts["GLD (Actual)"] == 250  # no actual close on the live row
+    assert counts["GLD (ARIMA forecast)"] == 251
+    assert counts["GLD (Naive forecast)"] == 251
+    assert df["Trading day"].nunique() == 251
+    assert df["Trading day"].min() == date_label("2025-11-03")
 
 
 @pytest.mark.parametrize("relative_mae", [0.981, 0.995, 1.0, 1.019])
@@ -943,14 +988,68 @@ def test_backtest_assumptions_explain_cagr_for_any_length():
     assert "Prefer cumulative return as the headline figure." in text
 
 
-def test_backtest_assumptions_say_it_is_not_the_forecasts_period():
+def forecasts_period(**overrides):
+    """
+    Forecasts metadata with only the fields forecasts_period_markdown
+    reads, scoring the same days as backtest_metadata() (contract v52).
+    """
+    values = dict(
+        target_trading_days=250,
+        evaluation_start_date="2025-11-04",
+        evaluation_end_date="2026-10-30",
+    )
+    return SimpleNamespace(**{**values, **overrides})
+
+
+def test_backtest_assumptions_without_forecasts_metadata():
     text = backtest_assumptions_markdown(backtest_metadata())
-    assert "**Not the forecasts' period:**" in text
-    assert "start on different dates" in text
+    assert "**Forecasts' period:**" in text
+    assert "separate settings, so they can start on different dates" in text
     # All dates were recomputed with year-long back tests, so the text does
     # not claim that older dates have shorter ones.
     assert "shorter back tests" not in text
     assert "v46" not in text
+
+
+def test_forecasts_period_same_days():
+    text = forecasts_period_markdown(backtest_metadata(), forecasts_period())
+    assert text == (
+        "- **Same period as the forecasts:** the back test and the forecast "
+        "accuracy metrics under Timeseries Analysis cover the same 250 trading "
+        "days (2025-11-04 to 2026-10-30). Their lengths are separate settings, "
+        "so other dates can differ."
+    )
+    # The bullet is part of the accordion text.
+    assert text in backtest_assumptions_markdown(
+        backtest_metadata(), forecasts_period()
+    ).splitlines()
+
+
+def test_forecasts_period_different_days():
+    # A date written before contract v52: 60 scored forecast days.
+    text = forecasts_period_markdown(
+        backtest_metadata(),
+        forecasts_period(target_trading_days=60, evaluation_start_date="2026-08-05"),
+    )
+    assert text.startswith("- **Not the forecasts' period:**")
+    assert "250 trading days (2025-11-04 to 2026-10-30)" in text
+    assert "cover 60 (2026-08-05 to 2026-10-30)" in text
+
+
+def test_forecasts_period_same_length_different_start():
+    # Equal lengths are not enough: the first days must match too.
+    text = forecasts_period_markdown(
+        backtest_metadata(), forecasts_period(evaluation_start_date="2025-11-05")
+    )
+    assert text.startswith("- **Not the forecasts' period:**")
+
+
+def test_forecasts_period_missing_dates():
+    text = forecasts_period_markdown(
+        backtest_metadata(),
+        forecasts_period(evaluation_start_date=None, evaluation_end_date=None),
+    )
+    assert "(n/a to n/a)" in text
 
 
 def test_backtest_assumptions_fill_each_dates_own_settings():
