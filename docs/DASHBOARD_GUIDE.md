@@ -33,7 +33,7 @@ The line under the title links to this guide and to the [Methods and Results](ht
 
 The **Data as of (NYSE trading day)** dropdown selects which backend run the whole page shows. Each entry is the last trading day of price data in that run, shown with its weekday, such as `2026-11-06 (Fri)`. The newest date is selected when the page opens, and older dates stay available for comparison.
 
-Changing the date reloads **both** sections from that date's results, so everything on the page always comes from the same run. The dates are NYSE trading days, so weekends and market holidays are skipped. New dates are added by hand, so the newest date may be a few days old. Check this dropdown to see how current the data is.
+Changing the date reloads **both** sections from that date's results, so everything on the page always comes from the same run. The dates are NYSE trading days, so weekends and market holidays are skipped. A new date is normally added each trading evening, after the market closes, but an update can be missed, so the newest date may be a few days old. Check this dropdown to see how current the data is.
 
 Every date's results use only the prices up to that day, as if the data ended then, so you can step back through the dates to see how the results changed over time. The collapsed **About this date's data...** accordion under the dropdown says when the selected date was computed.
 
@@ -111,7 +111,7 @@ The **Ticker** dropdown selects which ticker the plot and the accuracy metrics s
 
 The diagram on the right shows how the forecasts are made. Each bar is one fit: the blue part is the previous 250 trading days the model is fitted on, and the orange part is the next day, the one it forecasts and is scored on. The window then moves forward one day for the next fit.
 
-The **Forecast accuracy** table scores the ARIMA and naive forecasts on the same recent trading days, side by side. The line above it gives the number of days and their dates. For recent dates these are the same trading days as the back test in Portfolio Optimization, about a year ending on the selected date. Their lengths are set separately, though, and older dates score a much shorter period, so check the dates before comparing the two sections' numbers. The back test's accordion says whether the two cover the same days.
+The **Forecast accuracy** table scores the ARIMA and naive forecasts on the same recent trading days, side by side. The line above it gives the number of days and their dates. These are the same trading days as the back test in Portfolio Optimization, about a year ending on the selected date. Their lengths are set separately, though, so the back test's accordion checks and says whether the two cover the same days.
 
 | Metric | Units | Better when |
 | --- | --- | --- |

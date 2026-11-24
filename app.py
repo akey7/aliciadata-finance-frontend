@@ -1173,9 +1173,10 @@ def forecasts_period_markdown(backtest, forecasts_metadata):
     """
     Generate one bullet on whether the back test and the forecast accuracy
     metrics cover the same trading days. Both end on the selected date, but
-    their lengths are separate backend settings (contract v46): since v52
-    they are equal, while dates written earlier have shorter forecast
-    evaluations. So the periods are compared instead of assumed: they
+    their lengths are separate backend settings (contract v46). Since v52
+    they are equal (and every date in the bucket was recomputed after
+    v52), but either setting can change. So the periods are compared
+    instead of assumed: they
     match when the number of days and the first and last day are equal.
 
     Parameters
@@ -1209,7 +1210,8 @@ def forecasts_period_markdown(backtest, forecasts_metadata):
             "- **Same period as the forecasts:** the back test and the forecast "
             f"accuracy metrics under Timeseries Analysis cover the same "
             f"{b.trading_days} trading days ({b.start_date} to {b.end_date}). "
-            "Their lengths are separate settings, so other dates can differ."
+            "Their lengths are separate settings, so they can differ if either "
+            "setting changes."
         )
     return (
         "- **Not the forecasts' period:** the back test covers "
@@ -2649,10 +2651,12 @@ class FSFinance:
             ) as methods_accordion:
                 timeseries_intro_md = gr.Markdown("")
 
+            # Since contract v53 the backend runs on a schedule, once per
+            # trading day after the close, but a run can fail or be missed.
             gr.Markdown(
                 f"Data format: interface contract v{CONTRACT_VERSION}. "
-                "Data is updated manually, so check the \"Data as of\" date at the top "
-                "of the page."
+                "Data is normally updated each trading evening, but an update can be "
+                "missed, so check the \"Data as of\" date at the top of the page."
             )
 
             gr.Markdown(DISCLAIMER_MD)
