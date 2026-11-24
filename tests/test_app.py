@@ -442,22 +442,22 @@ def test_long_df_keeps_every_scored_day():
     assert df["Trading day"].min() == date_label("2025-11-03")
 
 
-@pytest.mark.parametrize("relative_mae", [0.981, 0.995, 1.0, 1.019])
-def test_accuracy_verdict_within_two_percent(relative_mae):
+@pytest.mark.parametrize("relative_mae", [0.991, 0.995, 1.0, 1.009])
+def test_accuracy_verdict_within_one_percent(relative_mae):
     assert accuracy_verdict(relative_mae) == (
-        "ARIMA's average error was **within 2%** of the naive forecast's."
+        "ARIMA's average error was **within 1%** of the naive forecast's."
     )
 
 
-@pytest.mark.parametrize("relative_mae", [0.5, 0.98])
+@pytest.mark.parametrize("relative_mae", [0.5, 0.98, 0.99])
 def test_accuracy_verdict_smaller(relative_mae):
-    # 0.98 itself is outside the open band.
+    # 0.99 itself is outside the open band.
     assert "**smaller**" in accuracy_verdict(relative_mae)
 
 
-@pytest.mark.parametrize("relative_mae", [1.02, 1.5])
+@pytest.mark.parametrize("relative_mae", [1.01, 1.02, 1.5])
 def test_accuracy_verdict_larger(relative_mae):
-    # 1.02 itself is outside the open band.
+    # 1.01 itself is outside the open band.
     assert "**larger**" in accuracy_verdict(relative_mae)
 
 

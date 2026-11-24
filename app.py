@@ -106,11 +106,11 @@ NAIVE_COLOR = "#999999"
 TIMESERIES_PLOT_HEIGHT = 660
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
-# Relative MAE strictly inside this band is reported as "within 2%" of the
+# Relative MAE strictly inside this band is reported as "within 1%" of the
 # naive forecast instead of smaller or larger. If you change it, also change
-# "within 2%" in accuracy_verdict().
-TIED_RELATIVE_MAE_LOW = 0.980
-TIED_RELATIVE_MAE_HIGH = 1.020
+# "within 1%" in accuracy_verdict().
+TIED_RELATIVE_MAE_LOW = 0.990
+TIED_RELATIVE_MAE_HIGH = 1.010
 
 # Portfolio optimization plot: the contract's suggested wording (v33), with
 # the subtitle broken onto two lines at the semicolon. The contract calls the
@@ -335,7 +335,7 @@ def accuracy_verdict(relative_mae):
 
     Values strictly between TIED_RELATIVE_MAE_LOW and TIED_RELATIVE_MAE_HIGH
     (including exactly 1) are reported as ARIMA's average error being
-    within 2% of the naive forecast's, so a tiny difference is not reported
+    within 1% of the naive forecast's, so a tiny difference is not reported
     as ARIMA winning or losing.
 
     Parameters
@@ -351,7 +351,7 @@ def accuracy_verdict(relative_mae):
     if relative_mae is None:
         return "Not enough scored days to compare ARIMA with the naive forecast."
     if TIED_RELATIVE_MAE_LOW < relative_mae < TIED_RELATIVE_MAE_HIGH:
-        return "ARIMA's average error was **within 2%** of the naive forecast's."
+        return "ARIMA's average error was **within 1%** of the naive forecast's."
     if relative_mae < 1:
         return "ARIMA's average error was **smaller** than the naive forecast's."
     return "ARIMA's average error was **larger** than the naive forecast's."
