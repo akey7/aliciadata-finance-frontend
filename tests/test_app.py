@@ -1017,7 +1017,7 @@ def test_forecasts_period_same_days():
         "- **Same period as the forecasts:** the back test and the forecast "
         "accuracy metrics under Timeseries Analysis cover the same 250 trading "
         "days (2025-11-04 to 2026-10-30). Their lengths are separate settings, "
-        "so other dates can differ."
+        "so they can differ if either setting changes."
     )
     # The bullet is part of the accordion text.
     assert text in backtest_assumptions_markdown(

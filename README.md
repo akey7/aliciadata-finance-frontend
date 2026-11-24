@@ -11,7 +11,7 @@ The dashboard presents two complementary analytical workflows:
 
 The application separates computationally intensive modeling from interactive presentation. The backend performs statistical estimation, model evaluation, simulation, and optimization, then publishes dated results to a self-hosted S3-compatible object store ([Garage](https://garagehq.deuxfleurs.fr/)). The frontend retrieves and validates those results for visualization without repeating the underlying numerical computations.
 
-This architecture supports a lightweight deployment while preserving analytical provenance, consistent financial units, and a versioned data interface between independently maintained applications. The frontend, the object store, and a Caddy reverse proxy run in Docker containers on a single Hetzner VPS, installed with Ansible, which keeps hosting simple and costs low and predictable; the backend runs elsewhere.
+This architecture supports a lightweight deployment while preserving analytical provenance, consistent financial units, and a versioned data interface between independently maintained applications. The frontend, the object store, and a Caddy reverse proxy run in Docker containers on a single Hetzner VPS, installed with Ansible, which keeps hosting simple and costs low and predictable; the backend runs on its own VPS, updating the results each trading evening.
 
 ## Live Application
 

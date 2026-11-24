@@ -7,8 +7,9 @@ The backend does all the modeling and publishes its results; this app only lists
 ```
  legend: [external]   module.py   ─► data flow
 
- [aliciadata-finance-backend]   backend repo, not on the VPS; uploads one
-            │                   date folder per run over the network
+ [aliciadata-finance-backend]   backend repo, on its own VPS; cron runs it
+            │                   each trading evening and it uploads one date
+            │                   folder per run over the network
             ▼
  [Garage S3 server]   on the VPS; one bucket (S3_BUCKET_NAME), two folders
    <portfolio optimization folder>/YYYY-MM-DD/
@@ -65,10 +66,10 @@ This is a proof-of-concept project, so it is hosted on a single VPS from [Hetzne
 - **This Gradio app**, which reads the bucket.
 - **[Caddy](https://caddyserver.com)**, the reverse proxy that serves https://aliciadata.com over HTTPS and forwards requests to the app.
 
-The containers are built and installed onto the VPS with [Ansible](https://www.ansible.com); see "Deployment". The backend is **not** hosted on the VPS: it runs elsewhere and uploads its results to Garage over the network. For how the backend connects to the bucket, see the [backend repo](https://github.com/akey7/aliciadata-finance-backend).
+The containers are built and installed onto the VPS with [Ansible](https://www.ansible.com); see "Deployment". The backend is **not** hosted on this VPS: since contract v53 it runs in a Docker container on a separate Hetzner VPS, started by cron once per trading day after the market closes, and uploads its results to Garage over the network. A run can fail or be missed, so the app lists the dates on every page load and shows the data date rather than assuming the data is current. For how the backend connects to the bucket, see the [backend repo](https://github.com/akey7/aliciadata-finance-backend).
 
 ```
- [aliciadata-finance-backend]   not on the VPS
+ [aliciadata-finance-backend]   separate Hetzner VPS, run by cron each trading evening
             │ S3 uploads over the network
             ▼
  Hetzner VPS (three Docker containers, installed with Ansible)
