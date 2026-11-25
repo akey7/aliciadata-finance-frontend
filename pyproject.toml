@@ -31,6 +31,14 @@ dev = [
 # This is an app, not an installable package, so uv installs only its
 # dependencies.
 package = false
+# Minimum versions of indirect dependencies, raised for security fixes
+# reported by GitHub. Pillow comes in through Gradio and matplotlib, certifi
+# through httpx, httpcore, and requests. These are floors, not pins: Gradio 6.30.0 caps
+# Pillow below 13, so the newest 12.x is the highest Pillow possible here.
+constraint-dependencies = [
+    "certifi>=2026.11.20",
+    "pillow>=12.0.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
