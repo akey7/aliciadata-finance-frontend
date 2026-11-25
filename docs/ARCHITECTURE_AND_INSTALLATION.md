@@ -151,6 +151,8 @@ Development is on macOS while production runs in a Debian-based Linux container 
 
 The Docker base image is not tracked, because its Python version must change together with `.python-version`.
 
+**Security floors for indirect dependencies.** Packages the app does not import directly but that need a minimum version for a security fix are listed under `constraint-dependencies` in `[tool.uv]` in `pyproject.toml` (currently Pillow and certifi). These set minimum versions without making the packages direct dependencies. To raise one, edit its floor and run `uv lock --upgrade-package <package>`, then `uv sync --locked`, and commit `pyproject.toml` and `uv.lock` together.
+
 The tests workflow runs on every Dependabot pull request. To check one locally, check out its branch, then run:
 
 ```
