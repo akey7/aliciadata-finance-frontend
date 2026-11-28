@@ -76,7 +76,18 @@ from app import (
     forecasts_period_markdown,
     signed_percent,
 )
+from app import (
+    arimax_model_label,
+    arimax_reading_markdown,
+    arimax_summary_markdown,
+    regressors_text,
+)
 from data_loading import (
+    ArimaxMetrics,
+    Comparison,
+    ExogenousVariable,
+    ModelMetrics,
+    TickerMetrics,
     BACKTEST_EQUAL_WEIGHT_WEALTH,
     BACKTEST_MAX_SHARPE_WEALTH,
     BacktestMetadata,
@@ -440,6 +451,146 @@ def test_long_df_keeps_every_scored_day():
     assert counts["GLD (Naive forecast)"] == 251
     assert df["Trading day"].nunique() == 251
     assert df["Trading day"].min() == date_label("2025-11-03")
+    # A date before contract v54 has no ARIMAX series.
+    assert "GLD (ARIMAX forecast)" not in counts
+
+
+def forecasts_with_arimax():
+    """
+    Build three rows of v54 forecasts for one ticker. The second row's
+    ARIMAX forecast and orders are empty (a missing regressor value), and
+    the first row's ARIMAX order is (0, 0).
+    """
+    dates = pd.bdate_range("2026-10-07", periods=3, name="pred_date")
+    return pd.DataFrame(
+        {
+            "GLD_arima": [300.0, 302.0, 301.0],
+            "GLD_arima_p": pd.array([1, 1, 0], dtype="Int64"),
+            "GLD_arima_d": pd.array([1, 1, 1], dtype="Int64"),
+            "GLD_arima_q": pd.array([1, 0, 1], dtype="Int64"),
+            "GLD_arimax": [300.5, np.nan, 301.4],
+            "GLD_arimax_p": pd.array([0, pd.NA, 1], dtype="Int64"),
+            "GLD_arimax_d": pd.array([1, pd.NA, 1], dtype="Int64"),
+            "GLD_arimax_q": pd.array([0, pd.NA, 1], dtype="Int64"),
+            "GLD_naive": [299.0, 301.0, 300.0],
+            "GLD": [301.0, 300.0, np.nan],
+        },
+        index=dates,
+    )
+
+
+def test_long_df_adds_arimax_series_with_its_own_orders():
+    app = object.__new__(FSFinance)
+    df = app.long_df(forecasts_with_arimax(), "GLD")
+    arimax = df[df["Series"] == "GLD (ARIMAX forecast)"]
+    # The empty forecast is dropped, as for ARIMA.
+    assert len(arimax) == 2
+    assert arimax["Model"].tolist() == [
+        "ARIMAX(0, 1, 0) on log prices (regression on daily log returns, no "
+        "ARMA terms)",
+        "ARIMAX(1, 1, 1) on log prices (fit with ARMA(1, 1) errors on daily log "
+        "returns)",
+    ]
+    # ARIMA's tooltips use ARIMA's orders, not ARIMAX's.
+    arima = df[df["Series"] == "GLD (ARIMA forecast)"]
+    assert arima["Model"].iloc[0].startswith("ARIMA(1, 1, 1) on log prices")
+
+
+def test_friendly_col_name_tells_arimax_from_arima():
+    app = object.__new__(FSFinance)
+    assert app.friendly_col_name("GLD_arima") == "GLD (ARIMA forecast)"
+    assert app.friendly_col_name("GLD_arimax") == "GLD (ARIMAX forecast)"
+    assert app.friendly_col_name("GLD") == "GLD (Actual)"
+
+
+def test_arimax_model_label_without_orders():
+    assert arimax_model_label(pd.NA, pd.NA, pd.NA) == (
+        "ARIMAX forecast (model orders not published for this date)"
+    )
+
+
+def spx(lag=1, transform="log_return", symbol="I:SPX"):
+    """Build one ARIMAX regressor as the metadata describes it."""
+    return ExogenousVariable(
+        symbol=symbol, source="massive", transform=transform, lag_sessions=lag
+    )
+
+
+def test_regressors_text_reads_every_field():
+    assert regressors_text([spx()]) == "the previous trading day's log return of I:SPX"
+    assert regressors_text([spx(lag=2, symbol="I:NDX")]) == (
+        "the log return of I:NDX from 2 trading days earlier"
+    )
+    assert regressors_text([spx(), spx(symbol="I:VIX", transform="level")]) == (
+        "the previous trading day's log return of I:SPX and the previous "
+        "trading day's level of I:VIX"
+    )
+
+
+def arimax_forecasts_metadata(variables=None, target_trading_days=250):
+    """Stand-in for ForecastsMetadata with only what the ARIMAX text reads."""
+    return SimpleNamespace(
+        arimax_exogenous_variables=variables,
+        target_trading_days=target_trading_days,
+    )
+
+
+def test_arimax_reading_fills_regressors_and_days():
+    text = arimax_reading_markdown(arimax_forecasts_metadata([spx()]))
+    assert text.startswith("### Reading the ARIMAX comparisons")
+    assert (
+        "ARIMAX adds the previous trading day's log return of I:SPX as a regressor."
+    ) in text
+    assert "during these 250 trading days" in text
+    assert "Values near 1 are expected" in text
+    assert "does not show that either model is better" in text
+    # Nothing hard-coded about the regressor, and no second disclaimer.
+    assert "S&P" not in text
+    assert DISCLAIMER_MD not in text
+    assert "investment advice" not in text.lower()
+
+
+def test_arimax_reading_absent_before_v55():
+    assert arimax_reading_markdown(arimax_forecasts_metadata(None)) == ""
+    assert arimax_reading_markdown(None) == ""
+
+
+def ticker_metrics(arimax=None):
+    """Build a ticker's metrics, optionally with a v55 ARIMAX block."""
+    return TickerMetrics(
+        n_evaluated=250,
+        evaluation_start_date="2025-11-04",
+        evaluation_end_date="2026-10-30",
+        arima=ModelMetrics(rmse=1.52, mae=1.21, mape=1.32),
+        naive=ModelMetrics(rmse=1.58, mae=1.25, mape=1.37),
+        relative_mae=0.968,
+        skill=0.032,
+        arimax=arimax,
+    )
+
+
+def test_arimax_summary_reads_both_comparisons():
+    arimax = ArimaxMetrics(
+        metrics=ModelMetrics(rmse=1.53, mae=1.22, mape=1.33),
+        n_evaluated=248,
+        vs_naive=Comparison(relative_mae=0.976, skill=0.024),
+        vs_arima=Comparison(relative_mae=1.004, skill=-0.004),
+    )
+    text = arimax_summary_markdown(ticker_metrics(arimax))
+    assert text.startswith("### ARIMAX vs. naive and ARIMA")
+    assert "**Relative MAE (ARIMAX ÷ naive):** 0.976" in text
+    assert "**Skill vs. naive:** 0.024" in text
+    # The published ratio, not 1.22 / 1.21.
+    assert "**Relative MAE (ARIMAX ÷ ARIMA):** 1.004" in text
+    assert "**Skill vs. ARIMA:** -0.004" in text
+    assert "Scored on 248 trading days." in text
+    # No verdict either way.
+    assert "smaller" not in text and "larger" not in text and "better" not in text
+
+
+def test_arimax_summary_empty_without_arimax():
+    assert arimax_summary_markdown(ticker_metrics()) == ""
+    assert arimax_summary_markdown(None) == ""
 
 
 @pytest.mark.parametrize("relative_mae", [0.991, 0.995, 1.0, 1.009])

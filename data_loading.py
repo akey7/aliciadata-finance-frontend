@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 53
+CONTRACT_VERSION = 55
 # Format of `computed_at` in the metadata files (contract v48), in UTC.
 UTC_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -68,6 +68,11 @@ ARIMA_SUFFIX = "_arima"
 # and the naive baseline (v19). Matched by exact suffix.
 ORDER_SUFFIXES = ("_arima_p", "_arima_d", "_arima_q")
 NAIVE_SUFFIX = "_naive"
+# Optional ARIMAX forecast and its orders (contract v54). Matched by exact
+# suffix: "T_arimax" does not end with "_arima", and "T_arimax_p" does not
+# end with "_arima_p", so the ARIMA lookups never pick these up.
+ARIMAX_SUFFIX = "_arimax"
+ARIMAX_ORDER_SUFFIXES = ("_arimax_p", "_arimax_d", "_arimax_q")
 # Units all_forecasts_metadata.yml must declare for the metrics it reports.
 EXPECTED_METRIC_UNITS = {
     "rmse": "usd_per_share",
@@ -217,12 +222,60 @@ class ModelMetrics:
 
 
 @dataclass(frozen=True)
+class Comparison:
+    """
+    One model's MAE compared with another's over the same days, from
+    all_forecasts_metadata.yml: relative_mae is the ratio of the two MAEs
+    (below 1 means the first model was more accurate) and skill is
+    1 - relative_mae. Either can be None.
+    """
+
+    relative_mae: float | None
+    skill: float | None
+
+
+@dataclass(frozen=True)
+class ArimaxMetrics:
+    """
+    ARIMAX accuracy for one ticker (contract v55), from the `arimax` block
+    of `ticker_metrics.<ticker>`. metrics are over n_evaluated days, those
+    on which ARIMAX, ARIMA, the naive forecast, and the actual close are
+    all present (normally the ticker's own n_evaluated, fewer if an
+    exogenous value was missing). vs_naive and vs_arima compare ARIMAX's
+    MAE with each model's on those same days; they come from the backend
+    and are never recomputed here.
+    """
+
+    metrics: ModelMetrics
+    n_evaluated: int | None
+    vs_naive: Comparison
+    vs_arima: Comparison
+
+
+@dataclass(frozen=True)
+class ExogenousVariable:
+    """
+    One ARIMAX regressor, from `models.arimax.exogenous_variables`
+    (contract v55): the series' symbol (e.g. "I:SPX"), its source, the
+    transform applied (e.g. "log_return"), and how many sessions it is
+    lagged. Any value but the symbol can be None when absent.
+    """
+
+    symbol: str
+    source: str | None
+    transform: str | None
+    lag_sessions: int | None
+
+
+@dataclass(frozen=True)
 class TickerMetrics:
     """
     ARIMA and naive accuracy for one ticker over its evaluation window,
     from all_forecasts_metadata.yml. relative_mae is ARIMA MAE / naive MAE
     (below 1 means ARIMA was more accurate) and skill is 1 - relative_mae
     (above 0 means ARIMA beat the naive forecast). Any value can be None.
+    arimax is the ARIMAX block (contract v55), None for older files or when
+    it is malformed.
     """
 
     n_evaluated: int | None
@@ -232,6 +285,7 @@ class TickerMetrics:
     naive: ModelMetrics
     relative_mae: float | None
     skill: float | None
+    arimax: ArimaxMetrics | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +296,8 @@ class ForecastsMetadata:
     tickers up with metrics_for(), which ignores case. The ARIMA order
     selection rule and its tie-break are optional free text from the
     backend (the tie-break since v23), None when absent.
+    arimax_exogenous_variables lists the ARIMAX regressors from
+    `models.arimax` (contract v55), None for older files or when malformed.
     """
 
     training_window_start_date: str
@@ -257,6 +313,7 @@ class ForecastsMetadata:
     arima_order_selection: str | None
     arima_order_selection_tie_break: str | None
     ticker_metrics: dict[str, TickerMetrics]
+    arimax_exogenous_variables: list[ExogenousVariable] | None = None
 
     def metrics_for(self, ticker: str) -> TickerMetrics | None:
         """
@@ -960,6 +1017,8 @@ def forecast_tickers(columns) -> list[str]:
 
     A ticker T is present when the file has both a `T_arima` forecast
     column and a `T` actual-price column. Other columns are ignored.
+    Matching is by exact suffix, so `T_arimax` (contract v54), which ends
+    with `_arimax`, is never taken for an ARIMA forecast column.
 
     Parameters
     ----------
@@ -1014,6 +1073,43 @@ def _clean_optional_column(df: pd.DataFrame, column: str, whole_numbers: bool) -
     df[column] = converted.astype("Int64") if whole_numbers else converted.astype(float)
 
 
+def model_orders(
+    df: pd.DataFrame, ticker: str, suffixes: tuple[str, str, str]
+) -> pd.DataFrame:
+    """
+    Return the model orders behind each of a ticker's forecasts, read from
+    the three order columns named by exact suffix (`T` + suffix).
+
+    Orders are missing on rows with no forecast and for columns the date
+    folder does not have.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Forecasts from load_forecasts().
+
+    ticker : str
+        The ticker.
+
+    suffixes : tuple[str, str, str]
+        The `p`, `d`, and `q` column suffixes: ORDER_SUFFIXES for ARIMA or
+        ARIMAX_ORDER_SUFFIXES for ARIMAX.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns `p`, `d`, `q` (nullable integers), indexed like df.
+    """
+    orders = pd.DataFrame(index=df.index)
+    for name, suffix in zip(("p", "d", "q"), suffixes):
+        column = f"{ticker}{suffix}"
+        if column in df.columns:
+            orders[name] = df[column]
+        else:
+            orders[name] = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    return orders
+
+
 def arima_orders(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     """
     Return the ARIMA model orders behind each of a ticker's forecasts.
@@ -1021,7 +1117,8 @@ def arima_orders(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     `p`, `d`, and `q` describe ARIMA(p, d, q) on log prices (the model is
     fit as ARIMA(p, 0, q) on daily log returns). Orders are missing on rows
     with no forecast and for columns the date folder does not have (no
-    order columns before contract v16, no `d` before v18).
+    order columns before contract v16, no `d` before v18). The ARIMAX order
+    columns (`T_arimax_p`, ...) are never read here.
 
     Parameters
     ----------
@@ -1036,14 +1133,54 @@ def arima_orders(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     pd.DataFrame
         Columns `p`, `d`, `q` (nullable integers), indexed like df.
     """
-    orders = pd.DataFrame(index=df.index)
-    for name, suffix in zip(("p", "d", "q"), ORDER_SUFFIXES):
-        column = f"{ticker}{suffix}"
-        if column in df.columns:
-            orders[name] = df[column]
-        else:
-            orders[name] = pd.Series(pd.NA, index=df.index, dtype="Int64")
-    return orders
+    return model_orders(df, ticker, ORDER_SUFFIXES)
+
+
+def arimax_orders(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    """
+    Return the ARIMAX model orders behind each of a ticker's forecasts
+    (contract v54).
+
+    `p`, `d`, and `q` describe ARIMAX(p, d, q) on log prices: a regression
+    of daily log returns on the exogenous variables with ARMA(p, q) errors.
+    Unlike ARIMA's, (p, q) = (0, 0) can occur. Orders are missing on rows
+    with no ARIMAX forecast and for date folders without the columns.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Forecasts from load_forecasts().
+
+    ticker : str
+        The ticker.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns `p`, `d`, `q` (nullable integers), indexed like df.
+    """
+    return model_orders(df, ticker, ARIMAX_ORDER_SUFFIXES)
+
+
+def arimax_column(df: pd.DataFrame, ticker: str) -> str | None:
+    """
+    Return the name of a ticker's ARIMAX forecast column, if present.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Forecasts from load_forecasts().
+
+    ticker : str
+        The ticker.
+
+    Returns
+    -------
+    str | None
+        `T_arimax`, or None if the date folder predates contract v54.
+    """
+    column = f"{ticker}{ARIMAX_SUFFIX}"
+    return column if column in df.columns else None
 
 
 def naive_column(df: pd.DataFrame, ticker: str) -> str | None:
@@ -1076,10 +1213,12 @@ def load_forecasts(path: str) -> pd.DataFrame:
     NaN on rows with no actual value yet (the live forecast row), and
     `T_arima` can be NaN where the previous close was missing (v20).
 
-    Optional columns are converted when present: `T_naive` (v19) to
-    float, and `T_arima_p`, `T_arima_d`, `T_arima_q` (v16, v18) to
+    Optional columns are converted when present: `T_naive` (v19) and
+    `T_arimax` (v54) to float, and `T_arima_p`, `T_arima_d`, `T_arima_q`
+    (v16, v18) and `T_arimax_p`, `T_arimax_d`, `T_arimax_q` (v54) to
     nullable integers. A malformed optional column is dropped rather than
-    rejecting the file.
+    rejecting the file. Columns are found by exact name, so the ARIMAX
+    columns are never mistaken for ARIMA ones.
 
     Parameters
     ----------
@@ -1115,7 +1254,8 @@ def load_forecasts(path: str) -> pd.DataFrame:
                     f"`{FORECASTS_KEY}` column `{column}` is not numeric."
                 )
         _clean_optional_column(df, f"{ticker}{NAIVE_SUFFIX}", whole_numbers=False)
-        for suffix in ORDER_SUFFIXES:
+        _clean_optional_column(df, f"{ticker}{ARIMAX_SUFFIX}", whole_numbers=False)
+        for suffix in ORDER_SUFFIXES + ARIMAX_ORDER_SUFFIXES:
             _clean_optional_column(df, f"{ticker}{suffix}", whole_numbers=True)
     df.index.name = "pred_date"
     return df.sort_index()
@@ -1274,6 +1414,114 @@ def _model_metrics(node, dotted_path: str) -> ModelMetrics:
     )
 
 
+def _comparison(node, dotted_path: str) -> Comparison:
+    """
+    Read one comparison block (`vs_naive` or `vs_arima`) of the ARIMAX
+    metrics.
+
+    Parameters
+    ----------
+    node : Any
+        The comparison mapping (missing counts as all-null).
+
+    dotted_path : str
+        Path of the block, used in error messages.
+
+    Returns
+    -------
+    Comparison
+        Relative MAE and skill, None where missing or null.
+    """
+    return Comparison(
+        relative_mae=_optional_number(
+            node, "relative_mae", f"{dotted_path}.relative_mae"
+        ),
+        skill=_optional_number(node, "skill", f"{dotted_path}.skill"),
+    )
+
+
+def _parse_arimax_metrics(node, dotted_path: str) -> ArimaxMetrics | None:
+    """
+    Read a ticker's optional ARIMAX block (contract v55).
+
+    The block is optional: it is None when absent (older files), and when
+    malformed it is ignored with a console message, so the ARIMA and naive
+    metrics can still be shown.
+
+    Parameters
+    ----------
+    node : Any
+        The `arimax` mapping of `ticker_metrics.<ticker>`, if any.
+
+    dotted_path : str
+        Path of the block, used in messages.
+
+    Returns
+    -------
+    ArimaxMetrics | None
+        The ARIMAX metrics, or None.
+    """
+    if node is None:
+        return None
+    try:
+        if not isinstance(node, dict):
+            raise DataLoadError(f"`{dotted_path}` is not a mapping.")
+        return ArimaxMetrics(
+            metrics=_model_metrics(node, dotted_path),
+            n_evaluated=_optional_number(
+                node, "n_evaluated", f"{dotted_path}.n_evaluated", integer=True
+            ),
+            vs_naive=_comparison(node.get("vs_naive"), f"{dotted_path}.vs_naive"),
+            vs_arima=_comparison(node.get("vs_arima"), f"{dotted_path}.vs_arima"),
+        )
+    except DataLoadError as error:
+        print(f"Ignoring optional ARIMAX metrics: {error}")
+        return None
+
+
+def _parse_exogenous_variables(models: dict) -> list[ExogenousVariable] | None:
+    """
+    Read the ARIMAX regressors from `models.arimax.exogenous_variables`
+    (contract v55).
+
+    Optional: None when the block is absent (older files) or malformed
+    (with a console message). Entries without a symbol are skipped, and an
+    empty result counts as absent.
+
+    Parameters
+    ----------
+    models : dict
+        The `models` mapping of the metadata (empty if absent).
+
+    Returns
+    -------
+    list[ExogenousVariable] | None
+        The regressors, in file order, or None.
+    """
+    arimax = models.get("arimax")
+    if not isinstance(arimax, dict):
+        return None
+    entries = arimax.get("exogenous_variables")
+    if not isinstance(entries, list):
+        if entries is not None:
+            print("Ignoring malformed `models.arimax.exogenous_variables`.")
+        return None
+    variables = []
+    for entry in entries:
+        symbol = _optional_str(entry, "symbol")
+        if symbol is None:
+            continue
+        variables.append(
+            ExogenousVariable(
+                symbol=symbol,
+                source=_optional_str(entry, "source"),
+                transform=_optional_str(entry, "transform"),
+                lag_sessions=_optional_int(entry, "lag_sessions"),
+            )
+        )
+    return variables or None
+
+
 def load_forecasts_metadata(path: str) -> ForecastsMetadata:
     """
     Load and validate all_forecasts_metadata.yml (contract v21).
@@ -1281,7 +1529,8 @@ def load_forecasts_metadata(path: str) -> ForecastsMetadata:
     The `units` block must declare the units the contract specifies for
     every metric, so values are never shown with the wrong units. Metric
     values may be null, and per-ticker keys are lowercase in the file.
-    Unknown keys are ignored.
+    Unknown keys are ignored. The ARIMAX metrics and model description
+    (contract v55) are optional and read only when present.
 
     Parameters
     ----------
@@ -1321,6 +1570,7 @@ def load_forecasts_metadata(path: str) -> ForecastsMetadata:
                 node, "relative_mae", f"{prefix}.relative_mae"
             ),
             skill=_optional_number(node, "skill", f"{prefix}.skill"),
+            arimax=_parse_arimax_metrics(node.get("arimax"), f"{prefix}.arimax"),
         )
     evaluation_window = document.get("evaluation_window")
     models = document.get("models")
@@ -1351,6 +1601,7 @@ def load_forecasts_metadata(path: str) -> ForecastsMetadata:
             models.get("arima"), "order_selection_tie_break"
         ),
         ticker_metrics=metrics,
+        arimax_exogenous_variables=_parse_exogenous_variables(models),
     )
 
 

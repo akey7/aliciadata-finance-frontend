@@ -14,6 +14,7 @@ from matplotlib.figure import Figure
 from s3_downloader import S3ConfigurationError, S3Downloader
 from data_loading import (
     ARIMA_SUFFIX,
+    ARIMAX_SUFFIX,
     BACKTEST_DAILY_KEY,
     BACKTEST_EQUAL_WEIGHT_WEALTH,
     BACKTEST_MAX_SHARPE_WEALTH,
@@ -32,6 +33,8 @@ from data_loading import (
     OptimizationMetadata,
     XYData,
     arima_orders,
+    arimax_column,
+    arimax_orders,
     available_dates,
     clean_weights,
     final_optimization_agrees,
@@ -99,6 +102,9 @@ BACKTEST_UNPUBLISHED = (
 ACTUAL_COLOR = "#0072B2"
 ARIMA_COLOR = "#D55E00"
 NAIVE_COLOR = "#999999"
+# Okabe-Ito bluish green, distinct from the other three for color-blind
+# viewers.
+ARIMAX_COLOR = "#009E73"
 # Height of the time series plot in pixels, chosen to roughly match the
 # column beside it (ticker, accuracy table, and summary panel) at typical
 # desktop widths. Gradio plots take a fixed height, so it cannot stretch to
@@ -264,6 +270,154 @@ def arima_model_label(p, d, q):
     return (
         f"ARIMA({p}, {d}, {q}) on log prices "
         f"(fit as ARIMA({p}, 0, {q}) on daily log returns)"
+    )
+
+
+def arimax_model_label(p, d, q):
+    """
+    Describe the ARIMAX model behind one forecast, for the plot tooltip, in
+    the same form as arima_model_label: orders on log prices, then how
+    the model is fit. Order (0, 0) is possible for ARIMAX (contract v54):
+    a regression on the exogenous variables with no ARMA terms.
+
+    Parameters
+    ----------
+    p, d, q : int | pandas.NA
+        The forecast's model orders; missing when not published.
+
+    Returns
+    -------
+    str
+        The model description.
+    """
+    if pd.isna(p) or pd.isna(q):
+        return "ARIMAX forecast (model orders not published for this date)"
+    if p == 0 and q == 0:
+        fit = "regression on daily log returns, no ARMA terms"
+    else:
+        fit = f"fit with ARMA({p}, {q}) errors on daily log returns"
+    if pd.isna(d):
+        return f"ARIMAX forecast ({fit})"
+    return f"ARIMAX({p}, {d}, {q}) on log prices ({fit})"
+
+
+def regressors_text(exogenous_variables):
+    """
+    Describe the ARIMAX regressors in words, from
+    `models.arimax.exogenous_variables`. Built from the fields the
+    backend publishes (symbol, transform, lag), so nothing is assumed
+    about which series they are: e.g. "the previous trading day's log
+    return of I:SPX".
+
+    Parameters
+    ----------
+    exogenous_variables : list[ExogenousVariable]
+        The regressors, at least one.
+
+    Returns
+    -------
+    str
+        The regressors joined with "and".
+    """
+    parts = []
+    for variable in exogenous_variables:
+        transform = (variable.transform or "value").replace("_", " ")
+        lag = variable.lag_sessions
+        if lag == 1:
+            parts.append(f"the previous trading day's {transform} of {variable.symbol}")
+        elif lag is None or lag == 0:
+            parts.append(f"the {transform} of {variable.symbol}")
+        else:
+            parts.append(
+                f"the {transform} of {variable.symbol} from {lag} trading days earlier"
+            )
+    if len(parts) == 1:
+        return parts[0]
+    return ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+
+def arimax_reading_markdown(forecasts_metadata):
+    """
+    Generate the "Reading the ARIMAX comparisons" part of the methods
+    accordion: the contract's suggested wording near the ARIMAX metrics
+    (v55), with the number of scored days and the regressors filled in from
+    the metadata, then its note on reading the comparisons: values near 1
+    are expected, and differences of a few percent over one window are
+    noise, so neither model is presented as better. The investment-advice
+    disclaimer is not repeated here.
+
+    Parameters
+    ----------
+    forecasts_metadata : ForecastsMetadata | None
+        Loaded forecasts metadata, if available.
+
+    Returns
+    -------
+    str
+        A `###` heading and its text, or an empty string when the date has
+        no ARIMAX model description (before contract v55).
+    """
+    if forecasts_metadata is None or not forecasts_metadata.arimax_exogenous_variables:
+        return ""
+    variables = forecasts_metadata.arimax_exogenous_variables
+    noun = "a regressor" if len(variables) == 1 else "regressors"
+    n = forecasts_metadata.target_trading_days
+    return os.linesep.join(
+        [
+            "### Reading the ARIMAX comparisons",
+            f"ARIMAX adds {regressors_text(variables)} as {noun}. Relative MAE "
+            "against ARIMA below 1 means the regressors helped over ARIMA alone "
+            f"during these {n} trading days; values close to 1 mean they made "
+            "little difference. Values near 1 are expected, because past values of "
+            "the regressors usually say little about the next day's return. A "
+            "difference of "
+            "a few percent from 1 over this one window is within the noise of the "
+            "sample, so it does not show that either model is better. All three "
+            "models are compared on the days ARIMAX was scored, which can be "
+            "fewer than ARIMA's if a regressor value was missing.",
+        ]
+    )
+
+
+def arimax_summary_markdown(ticker_metrics):
+    """
+    Generate the gray "ARIMAX vs. naive and ARIMA" panel: ARIMAX's relative
+    MAE and skill against the naive forecast and against ARIMA, read from
+    the backend's `vs_naive` and `vs_arima` (contract v55) and never
+    computed here (in particular not as arimax.mae / arima.mae, which can
+    cover different days). It states how many days ARIMAX was scored on,
+    and gives no verdict, because differences near 1 over one window are
+    noise.
+
+    Parameters
+    ----------
+    ticker_metrics : TickerMetrics | None
+        The ticker's metrics, if any.
+
+    Returns
+    -------
+    str
+        Markdown, or an empty string when there are no ARIMAX metrics (no
+        metadata, no metrics for the ticker, or a date before v55), so the
+        panel is hidden.
+    """
+    if ticker_metrics is None or ticker_metrics.arimax is None:
+        return ""
+    a = ticker_metrics.arimax
+    return os.linesep.join(
+        [
+            "### ARIMAX vs. naive and ARIMA",
+            f"**Relative MAE (ARIMAX ÷ naive):** "
+            f"{format_value(a.vs_naive.relative_mae, '.3f')}  ",
+            f"**Skill vs. naive:** {format_value(a.vs_naive.skill, '.3f')}",
+            "",
+            f"**Relative MAE (ARIMAX ÷ ARIMA):** "
+            f"{format_value(a.vs_arima.relative_mae, '.3f')}  ",
+            f"**Skill vs. ARIMA:** {format_value(a.vs_arima.skill, '.3f')}",
+            "",
+            f"Scored on {format_value(a.n_evaluated, 'd')} trading days. Values "
+            "near 1 (skill near 0) are expected; see below for how to read them.",
+        ]
     )
 
 
@@ -1865,8 +2019,11 @@ class FSFinance:
         str
             User-friendly column name.
         """
+        # Exact suffixes: "T_arimax" ends with "_arimax", not "_arima".
         if col_name.endswith(ARIMA_SUFFIX):
             return f"{col_name.removesuffix(ARIMA_SUFFIX)} (ARIMA forecast)"
+        elif col_name.endswith(ARIMAX_SUFFIX):
+            return f"{col_name.removesuffix(ARIMAX_SUFFIX)} (ARIMAX forecast)"
         elif col_name.endswith(NAIVE_SUFFIX):
             return f"{col_name.removesuffix(NAIVE_SUFFIX)} (Naive forecast)"
         else:
@@ -1874,16 +2031,18 @@ class FSFinance:
 
     def long_df(self, forecasts, ticker):
         """
-        Isolate actual, ARIMA-forecast, and naive-forecast adjusted close
-        prices of a ticker and pivot them from the wide dataframe into a
-        long format suitable for visualization with gr.LinePlot(). The
-        naive series is included only when the date folder has it
-        (contract v19+).
+        Isolate actual, ARIMA-forecast, ARIMAX-forecast, and naive-forecast
+        adjusted close prices of a ticker and pivot them from the wide
+        dataframe into a long format suitable for visualization with
+        gr.LinePlot(). The naive series is included only when the date
+        folder has it (contract v19+), and the ARIMAX series likewise
+        (v54+).
 
         Empty values are dropped: actual prices on the live forecast row,
-        and ARIMA forecasts after a missing close (contract v20), where the
-        line joins across the gap. A "Model" column describes each point
-        for the tooltip, including each ARIMA forecast's own (p, d, q).
+        and ARIMA or ARIMAX forecasts after a missing close (contract v20)
+        or, for ARIMAX, a missing regressor value, where the line joins
+        across the gap. A "Model" column describes each point for the
+        tooltip, including each ARIMA and ARIMAX forecast's own (p, d, q).
 
         "Date" is a real timestamp so the plot's date axis can thin its
         labels, with each close placed at noon (see noon_timestamps).
@@ -1906,12 +2065,25 @@ class FSFinance:
             "Trading day".
         """
         arima_col = f"{ticker}{ARIMA_SUFFIX}"
+        arimax_col = arimax_column(forecasts, ticker)
         naive_col = naive_column(forecasts, ticker)
-        value_columns = [ticker, arima_col] + ([naive_col] if naive_col else [])
+        value_columns = (
+            [ticker, arima_col]
+            + ([arimax_col] if arimax_col else [])
+            + ([naive_col] if naive_col else [])
+        )
         orders = arima_orders(forecasts, ticker)
         arima_labels = pd.Series(
             [arima_model_label(p, d, q) for p, d, q in orders.itertuples(index=False)],
             index=orders.index,
+        )
+        x_orders = arimax_orders(forecasts, ticker)
+        arimax_labels = pd.Series(
+            [
+                arimax_model_label(p, d, q)
+                for p, d, q in x_orders.itertuples(index=False)
+            ],
+            index=x_orders.index,
         )
         select_df = forecasts[value_columns].reset_index()
         select_df = select_df.melt(
@@ -1921,10 +2093,18 @@ class FSFinance:
             value_name="Adjusted Close ($)",
         )
         select_df = select_df.dropna(subset=["Adjusted Close ($)"])
-        select_df["Model"] = np.where(
-            select_df["Series"] == arima_col,
-            select_df["pred_date"].map(arima_labels),
-            np.where(select_df["Series"] == naive_col, NAIVE_TOOLTIP, ACTUAL_TOOLTIP),
+        select_df["Model"] = np.select(
+            [
+                select_df["Series"] == arima_col,
+                select_df["Series"] == arimax_col,
+                select_df["Series"] == naive_col,
+            ],
+            [
+                select_df["pred_date"].map(arima_labels),
+                select_df["pred_date"].map(arimax_labels),
+                NAIVE_TOOLTIP,
+            ],
+            default=ACTUAL_TOOLTIP,
         )
         select_df["Series"] = select_df["Series"].apply(self.friendly_col_name)
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].round(2)
@@ -1936,8 +2116,9 @@ class FSFinance:
 
     def timeseries_plot(self, forecasts, ticker):
         """
-        Create a gr.LinePlot() with actual prices and ARIMA and naive
-        forecasts for a ticker. Each series has a fixed color, and hovering
+        Create a gr.LinePlot() with actual prices and ARIMA, ARIMAX (when
+        the date has it, contract v54+), and naive forecasts for a ticker.
+        Each series has a fixed color, and hovering
         a point shows the model behind it. The app calls this inside a
         gr.render() function so the plot is rebuilt from scratch whenever
         the selected date or ticker changes.
@@ -1961,6 +2142,7 @@ class FSFinance:
         colors = {
             self.friendly_col_name(ticker): ACTUAL_COLOR,
             self.friendly_col_name(f"{ticker}{ARIMA_SUFFIX}"): ARIMA_COLOR,
+            self.friendly_col_name(f"{ticker}{ARIMAX_SUFFIX}"): ARIMAX_COLOR,
             self.friendly_col_name(f"{ticker}{NAIVE_SUFFIX}"): NAIVE_COLOR,
         }
         # Only series present in the data, so the legend never lists a
@@ -2253,8 +2435,10 @@ class FSFinance:
         accuracy metrics (metrics_note_markdown; left out when the date has
         no forecasts metadata), then the contract's suggested wording on how
         the forecasts are made, why d = 1, and the naive baseline. Parts
-        about model orders and the naive forecast appear only when the date
-        folder has those columns.
+        about model orders, ARIMAX (contract v54), and the naive forecast
+        appear only when the date folder has those columns, and the
+        "Reading the ARIMAX comparisons" part (arimax_reading_markdown) only
+        when the metadata describes the ARIMAX model (v55).
 
         Parameters
         ----------
@@ -2276,6 +2460,10 @@ class FSFinance:
         has_naive = any(
             str(column).endswith(NAIVE_SUFFIX) for column in forecasts.columns
         )
+        # Exact suffix (contract v54): "T_arimax" columns only.
+        has_arimax = any(
+            str(column).endswith(ARIMAX_SUFFIX) for column in forecasts.columns
+        )
         window = training_window_text(
             forecasts_metadata.training_window_returns
             if forecasts_metadata is not None
@@ -2290,12 +2478,24 @@ class FSFinance:
         selection = order_selection_text(forecasts_metadata)
         if selection:
             how += f" {selection}"
+        if has_arimax:
+            how += (
+                " An ARIMAX model is fit on the same window: a regression of the "
+                "daily log return on lagged exogenous variables, with ARMA(p, q) "
+                "errors, made from the same closes as the ARIMA forecast. Its orders "
+                "are chosen the same way, except that (0, 0), a regression with no "
+                "ARMA terms, is also a candidate. Its forecast is skipped when a "
+                "regressor value it needs is missing."
+            )
         if has_orders:
             how += " Hover over a forecast to see the model behind it."
         lines = []
         metrics_note = self.metrics_note_markdown(forecasts_metadata)
         if metrics_note:
             lines += ["### Reading the accuracy metrics", metrics_note]
+        arimax_note = arimax_reading_markdown(forecasts_metadata)
+        if arimax_note:
+            lines.append(arimax_note)
         lines += [
             "### Walk-forward forecasts",
             "Each point represents a one-day-ahead forecast of adjusted closing price (US $). Models are refit at "
@@ -2628,6 +2828,11 @@ class FSFinance:
                     # panel shows.
                     with gr.Column(variant="panel", visible=False) as summary_panel:
                         metrics_summary_md = gr.Markdown("")
+                    # ARIMAX against naive and ARIMA (contract v55), under the
+                    # ARIMA panel. Hidden for dates or tickers without ARIMAX
+                    # metrics.
+                    with gr.Column(variant="panel", visible=False) as arimax_panel:
+                        arimax_summary_md = gr.Markdown("")
 
             @gr.render(
                 inputs=[date_dropdown, marker_state, ticker_dropdown],
@@ -2643,7 +2848,7 @@ class FSFinance:
             # The metrics and methods text is collapsed by default, like the
             # portfolio assumptions accordion.
             with gr.Accordion(
-                "Reading the accuracy metrics, walk-forward ARIMA, naive "
+                "Reading the accuracy metrics, walk-forward ARIMA and ARIMAX, naive "
                 "forecasting, and out-of-sample evaluation...",
                 open=False,
                 visible=False,
@@ -2705,13 +2910,26 @@ class FSFinance:
 
             def on_ticker_text(date, markers, ticker):
                 data = self.selected_data(date, markers)
+                hidden = gr.update(visible=False)
                 if data is None or data.forecasts is None:
-                    return "", "", gr.update(visible=False)
+                    return "", "", hidden, "", hidden
                 ticker = self.resolve_ticker(data.forecasts, ticker)
                 table_md, summary_md = self.forecast_metrics_markdown(
                     data.forecasts_metadata, data.forecasts_metadata_error, ticker
                 )
-                return table_md, summary_md, gr.update(visible=bool(summary_md))
+                ticker_metrics = (
+                    data.forecasts_metadata.metrics_for(ticker)
+                    if data.forecasts_metadata is not None
+                    else None
+                )
+                arimax_md = arimax_summary_markdown(ticker_metrics)
+                return (
+                    table_md,
+                    summary_md,
+                    gr.update(visible=bool(summary_md)),
+                    arimax_md,
+                    gr.update(visible=bool(arimax_md)),
+                )
 
             app.load(
                 on_load,
@@ -2733,7 +2951,13 @@ class FSFinance:
                 triggers=[date_dropdown.change, ticker_dropdown.change],
                 fn=on_ticker_text,
                 inputs=[date_dropdown, marker_state, ticker_dropdown],
-                outputs=[metrics_md, metrics_summary_md, summary_panel],
+                outputs=[
+                    metrics_md,
+                    metrics_summary_md,
+                    summary_panel,
+                    arimax_summary_md,
+                    arimax_panel,
+                ],
             )
 
         # The default theme, with its bundled Source Sans Pro replaced by IBM
