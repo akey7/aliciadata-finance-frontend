@@ -6,7 +6,7 @@ AliciaData Finance Frontend is a Python/Gradio dashboard for exploring quantitat
 
 The dashboard presents two complementary analytical workflows:
 
-- **Time-series forecasting:** Compare observed stock prices with one-day-ahead ARIMA and naive forecasts, inspect the models used for individual predictions, and evaluate out-of-sample accuracy using RMSE, MAE, MAPE, relative MAE, forecast skill, and directional accuracy.
+- **Time-series forecasting:** Compare observed stock prices with one-day-ahead ARIMA, ARIMAX (with lagged exogenous regressors), and naive forecasts, inspect the models used for individual predictions, and evaluate out-of-sample accuracy using RMSE, MAE, MAPE, relative MAE, forecast skill, and directional accuracy.
 - **Portfolio optimization:** Explore the mean-variance efficient frontier, Monte Carlo-simulated portfolios, minimum-variance and maximum-Sharpe portfolios, risk-adjusted performance, and portfolio allocations, plus a walk-forward back test of the maximum-Sharpe portfolio against an equal-weight baseline.
 
 The application separates computationally intensive modeling from interactive presentation. The backend performs statistical estimation, model evaluation, simulation, and optimization, then publishes dated results to a self-hosted S3-compatible object store ([Garage](https://garagehq.deuxfleurs.fr/)). The frontend retrieves and validates those results for visualization without repeating the underlying numerical computations.

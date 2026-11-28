@@ -18,6 +18,8 @@ from data_loading import (
     PLOT_GROUPS,
     DataLoadError,
     arima_orders,
+    arimax_column,
+    arimax_orders,
     available_dates,
     clean_weights,
     final_optimization_agrees,
@@ -596,6 +598,77 @@ def test_older_forecasts_have_no_optional_columns(tmp_path):
     df = load_forecasts(write_csv(tmp_path / "f.csv", FORECASTS_CSV))
     assert naive_column(df, "GLD") is None
     assert arima_orders(df, "GLD").isna().all().all()
+    assert arimax_column(df, "GLD") is None
+    assert arimax_orders(df, "GLD").isna().all().all()
+
+
+# all_forecasts.csv, contract v54 ARIMAX columns
+
+# Ten columns per ticker, with ARIMA and ARIMAX orders that differ on every
+# row, so reading one set in place of the other would fail the tests. GLD's
+# ARIMAX is (0, 0) on the first row (a regression with no ARMA terms), and
+# empty on the second (a missing regressor value) while its ARIMA is present.
+V54_FORECASTS_CSV = (
+    "pred_date,GLD_arima,GLD_arima_p,GLD_arima_d,GLD_arima_q,"
+    "GLD_arimax,GLD_arimax_p,GLD_arimax_d,GLD_arimax_q,GLD_naive,GLD,"
+    "NVDA_arima,NVDA_arima_p,NVDA_arima_d,NVDA_arima_q,"
+    "NVDA_arimax,NVDA_arimax_p,NVDA_arimax_d,NVDA_arimax_q,NVDA_naive,NVDA\n"
+    "2026-10-07 17:00:00,300.0,1,1,1,300.5,0,1,0,299.0,301.0,"
+    "180.0,0,1,1,180.2,1,1,0,181.0,182.0\n"
+    "2026-10-08 17:00:00,302.0,1,1,0,,,,,301.0,300.0,"
+    "181.0,1,1,0,181.3,0,1,1,182.0,179.0\n"
+    "2026-10-09 17:00:00,301.0,0,1,1,301.4,1,1,1,300.0,,"
+    "180.5,1,1,0,180.6,1,1,1,179.0,\n"
+)
+
+
+def test_v54_arimax_columns_are_not_read_as_arima(tmp_path):
+    df = load_forecasts(write_csv(tmp_path / "f.csv", V54_FORECASTS_CSV))
+    # "GLD_arimax" ends with "_arimax", not "_arima": one ticker each.
+    assert forecast_tickers(df.columns) == ["GLD", "NVDA"]
+    arima = arima_orders(df, "GLD").loc[pd.Timestamp("2026-10-07")]
+    assert (arima["p"], arima["d"], arima["q"]) == (1, 1, 1)
+    arimax = arimax_orders(df, "GLD").loc[pd.Timestamp("2026-10-07")]
+    assert (arimax["p"], arimax["d"], arimax["q"]) == (0, 1, 0)
+    assert last_actual_date(df) == pd.Timestamp("2026-10-08")
+
+
+def test_v54_arimax_columns_load_as_numbers(tmp_path):
+    df = load_forecasts(write_csv(tmp_path / "f.csv", V54_FORECASTS_CSV))
+    assert arimax_column(df, "GLD") == "GLD_arimax"
+    assert df["GLD_arimax"].dtype == float
+    assert str(df["GLD_arimax_p"].dtype) == "Int64"
+    # Empty where a regressor value was missing, while ARIMA is present.
+    second = pd.Timestamp("2026-10-08")
+    assert pd.isna(df.loc[second, "GLD_arimax"])
+    assert df.loc[second, "GLD_arima"] == 302.0
+    assert arimax_orders(df, "GLD").loc[second].isna().all()
+
+
+def test_forecast_tickers_with_both_column_sets():
+    columns = [
+        "GLD_arima",
+        "GLD_arima_p",
+        "GLD_arimax",
+        "GLD_arimax_p",
+        "GLD_naive",
+        "GLD",
+        # An ARIMAX forecast alone does not make a ticker.
+        "QQQ_arimax",
+        "QQQ",
+    ]
+    assert forecast_tickers(columns) == ["GLD"]
+
+
+def test_malformed_arimax_columns_are_dropped(tmp_path):
+    text = (
+        "pred_date,GLD_arima,GLD_arimax,GLD_arimax_p,GLD\n"
+        "2026-10-07,300,abc,0.5,301\n"
+    )
+    df = load_forecasts(write_csv(tmp_path / "f.csv", text))
+    assert "GLD_arimax" not in df.columns
+    assert "GLD_arimax_p" not in df.columns
+    assert forecast_tickers(df.columns) == ["GLD"]
 
 
 def test_pre_v18_orders_without_d(tmp_path):
@@ -709,6 +782,90 @@ def test_forecasts_metadata_nulls_and_missing_values(tmp_path):
     assert nvda.arima.rmse is None  # key absent
     assert nvda.evaluation_start_date is None
     assert fm.metrics_for("QQQ") is None
+
+
+def v55_forecasts_metadata() -> dict:
+    """
+    Return the v24-based document with the contract v55 ARIMAX blocks:
+    models.arimax and an arimax block for gld only (nvda has none). Its
+    vs_arima ratio deliberately differs from arimax.mae / arima.mae, to
+    show the value is read, not computed.
+    """
+    document = v24_forecasts_metadata()
+    document["models"]["arimax"] = {
+        "d": 1,
+        "description": "regression of daily log returns on lagged exogenous "
+        "variables with ARMA(p, q) errors",
+        "excluded_orders": [],
+        "exogenous_variables": [
+            {
+                "lag_sessions": 1,
+                "source": "massive",
+                "symbol": "I:SPX",
+                "transform": "log_return",
+            }
+        ],
+        "fit_returns": 250,
+    }
+    document["ticker_metrics"]["gld"]["arimax"] = {
+        "directional_accuracy": 0.54,
+        "mae": 1.22,
+        "mape": 1.33,
+        "n_directional": 19,
+        "n_evaluated": 19,
+        "rmse": 1.53,
+        "vs_arima": {"relative_mae": 1.004, "skill": -0.004},
+        "vs_naive": {"relative_mae": 0.976, "skill": 0.024},
+    }
+    return document
+
+
+def test_forecasts_metadata_loads_v55_arimax(tmp_path):
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v55_forecasts_metadata()))
+    gld = fm.metrics_for("GLD")
+    assert gld.arimax.n_evaluated == 19
+    assert gld.arimax.metrics.mae == 1.22
+    assert gld.arimax.metrics.directional_accuracy == 0.54
+    assert gld.arimax.vs_naive.skill == 0.024
+    # Read as published, not arimax.mae / arima.mae (1.22 / 1.21 = 1.008).
+    assert gld.arimax.vs_arima.relative_mae == 1.004
+    assert gld.arimax.vs_arima.skill == -0.004
+    # ARIMA's own numbers are unchanged.
+    assert gld.relative_mae == 0.968
+    assert fm.metrics_for("nvda").arimax is None
+    [variable] = fm.arimax_exogenous_variables
+    assert variable.symbol == "I:SPX"
+    assert variable.transform == "log_return"
+    assert variable.lag_sessions == 1
+
+
+def test_forecasts_metadata_arimax_absent_before_v55(tmp_path):
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v24_forecasts_metadata()))
+    assert fm.metrics_for("gld").arimax is None
+    assert fm.arimax_exogenous_variables is None
+
+
+@pytest.mark.parametrize(
+    "bad_block",
+    ["not a mapping", {"mae": "abc"}, {"vs_arima": {"skill": "x"}}],
+)
+def test_forecasts_metadata_ignores_malformed_arimax(tmp_path, bad_block):
+    document = v55_forecasts_metadata()
+    document["ticker_metrics"]["gld"]["arimax"] = bad_block
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", document))
+    gld = fm.metrics_for("gld")
+    assert gld.arimax is None
+    assert gld.relative_mae == 0.968  # the rest of the file still loads
+
+
+def test_forecasts_metadata_ignores_malformed_regressors(tmp_path):
+    document = v55_forecasts_metadata()
+    document["models"]["arimax"]["exogenous_variables"] = "I:SPX"
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", document))
+    assert fm.arimax_exogenous_variables is None
+    document["models"]["arimax"]["exogenous_variables"] = [{"lag_sessions": 1}]
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm2.yml", document))
+    assert fm.arimax_exogenous_variables is None  # no symbol to name
 
 
 def test_forecasts_metadata_order_selection_is_optional(tmp_path):
